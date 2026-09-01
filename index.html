@@ -8,6 +8,7 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -40,6 +41,13 @@ header{
   padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;
   display:flex;align-items:center;gap:12px;min-height:56px;
 }
+/* Indholdet er 640 px bredt og centreret. Headeren og fanelinjen skal
+   følge med, ellers står teksten i venstre kant på en bred skærm. */
+header{padding-left:max(16px,calc(50vw - 320px));padding-right:max(16px,calc(50vw - 320px))}
+#faner{padding-left:max(0px,calc(50vw - 320px));padding-right:max(0px,calc(50vw - 320px))}
+#net,#demo{padding-left:max(16px,calc(50vw - 320px));padding-right:max(16px,calc(50vw - 320px))}
+#toast{left:max(16px,calc(50vw - 320px));right:max(16px,calc(50vw - 320px))}
+#btop,#brapport{margin-left:auto;margin-right:auto;max-width:640px}
 header h1{font-size:17px;font-weight:600;margin:0;flex:1;min-width:0;letter-spacing:-.01em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header h1 .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -2911,11 +2919,40 @@ async function visLogin(){
 
   tegnKodeLogin();
 
-  if(!ER_OPSAT || !window.google?.accounts?.id) return;
-  google.accounts.id.initialize({client_id:CLIENT_ID,callback:påLogin,auto_select:true});
-  google.accounts.id.renderButton($('#gknap'),
-    {theme:'filled_black',size:'large',shape:'pill',text:'signin_with',locale:'da'});
-  google.accounts.id.prompt();
+  if(!ER_OPSAT) return;
+  tegnGoogleKnap();
+}
+
+/**
+ * Googles bibliotek indlæses med "async defer" og er sjældent klar, når
+ * skærmen tegnes. Derfor venter vi på det i stedet for at give op.
+ */
+async function tegnGoogleKnap(){
+  const boks=$('#gknap');
+  if(!boks) return;
+  boks.innerHTML='<span class="spin"></span>';
+
+  for(let i=0;i<40;i++){
+    if(window.google?.accounts?.id) break;
+    await new Promise(r=>setTimeout(r,150));
+  }
+  if(!window.google?.accounts?.id){
+    boks.innerHTML='<div class="vejl" style="font-size:13px;width:100%">'+
+      'Google-login kunne ikke indlæses. Det sker, hvis netværket blokerer '+
+      'accounts.google.com. Brug koden på e-mail nedenfor i stedet.</div>';
+    return;
+  }
+  try{
+    boks.innerHTML='';
+    google.accounts.id.initialize({client_id:CLIENT_ID,callback:påLogin,auto_select:false});
+    google.accounts.id.renderButton(boks,
+      {theme:'filled_black',size:'large',shape:'pill',text:'signin_with',locale:'da'});
+    google.accounts.id.prompt();
+  }catch(e){
+    boks.innerHTML='<div class="arkfejl" style="width:100%">Google afviste opsætningen: '+
+      esc(e.message)+'<br><br>Kontrollér at <b>https://bernt84.github.io</b> står som '+
+      'godkendt JavaScript-kilde på OAuth-klienten — uden skråstreg til sidst.</div>';
+  }
 }
 
 /** Login uden Google-konto: engangskode på e-mail. */
