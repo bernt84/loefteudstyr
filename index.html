@@ -2885,6 +2885,8 @@ async function tegn(){
     else if(rute.navn==='placering')await visPlacering(rute.id);
     else if(rute.navn==='her')      await visHer();
     else if(rute.navn==='firma')    await visFirma();
+    else if(rute.navn==='kunder')   await visKunder();
+    else if(rute.navn==='kunde')    await visKunde(rute.id);
     else if(rute.navn==='manual')   await visManual(rute.id);
     else if(rute.navn==='ret')      await visRet(rute.id);
     else if(rute.navn==='kort')     await visKort(rute.id);
@@ -4622,6 +4624,9 @@ async function visMere(){
   h.push('<button class="knap" onclick="gå({navn:\'her\'})">'+
     '<span style="display:inline-block;width:17px;height:17px;vertical-align:-3px;'+
     'margin-right:7px">'+IKON.her+'</span>Hvad står her?</button>');
+  if(bruger.rolle!=='kunde'){
+    h.push('<button class="knap" onclick="gå({navn:\'kunder\'})">Kunder og brugere</button>');
+  }
   h.push('<button class="knap" onclick="gå({navn:\'firma\'})">Firma og logo</button>');
   h.push('<button class="knap" onclick="gå({navn:\'godkend\'})">Godkendelser</button>');
   h.push('<h2 class="afsnit">Logget ind som</h2><div class="kort">'+
@@ -5855,6 +5860,203 @@ function tpArk(equipmentId,t){
       m.className=''; m.innerHTML='';
       toast(t?'Gemt':'Prøvested tilføjet');
       visProevesteder(equipmentId);
+    }catch(e){ vis(e.message); }
+  };
+}
+
+
+/* ================================================================== *
+ * 36. Kunder og brugere
+ * ================================================================== */
+
+async function visKunder(){
+  const liste=await hent('api_companies',[]);
+  sætTitel('Kunder',liste.length+' firmaer');
+
+  const h=['<button class="knap primaer" id="k_ny">Opret firma</button>'];
+  if(!liste.length){
+    h.push('<div class="tom"><p>Der er ikke oprettet nogen firmaer endnu.</p>'+
+      '<p style="font-size:13.5px">Opret først dit eget firma, og derefter dine kunder. '+
+      'Udstyr skal have en ejer, og en kundebruger skal høre til et firma.</p></div>');
+  }
+  for(const c of liste){
+    h.push('<button class="rk '+(c.aktiv==='Nej'?'':'ok')+'" data-c="'+esc(c.id)+'"'+
+      (c.aktiv==='Nej'?' style="opacity:.55"':'')+'>'+
+      '<h3>'+esc(c.navn)+'</h3>'+
+      '<div class="meta">'+
+        (c.cvr?'<span class="mono">CVR '+esc(c.cvr)+'</span>':'')+
+        (c.adresse?'<span>'+esc(c.adresse)+'</span>':'')+'</div>'+
+      '<div class="termin ok">'+c.antalBrugere+' brugere · '+c.antalUdstyr+' stykker udstyr'+
+        (c.aktiv==='Nej'?' · deaktiveret':'')+'</div>'+
+      (c.kontaktperson?'<div class="meta" style="margin-top:4px">'+esc(c.kontaktperson)+
+        (c.email?' · '+esc(c.email):'')+'</div>':'')+
+    '</button>');
+  }
+  app.innerHTML=h.join('');
+  $('#k_ny').onclick=()=>firmaArk(null);
+  document.querySelectorAll('[data-c]').forEach(b=>{
+    b.onclick=()=>gå({navn:'kunde',id:b.dataset.c});
+  });
+}
+
+function firmaArk(c){
+  const m=document.getElementById('modal');
+  m.innerHTML='<div class="ark" style="max-height:86vh;overflow-y:auto">'+
+    '<h3>'+(c?'Ret '+esc(c.navn):'Nyt firma')+'</h3>'+
+    '<div id="kfejl"></div>'+
+    felt('c_navn','Firmanavn','text','Fx Kran og Svejs ApS',c?c.navn:'')+
+    felt('c_cvr','CVR','text','8 cifre',c?c.cvr:'')+
+    felt('c_adr','Adresse','text','',c?(c.adresse||'').split(',')[0]:'')+
+    '<div style="display:flex;gap:10px">'+
+      '<div style="width:38%">'+felt('c_post','Postnr','text','',c?c.postnr:'')+'</div>'+
+      '<div style="flex:1">'+felt('c_by','By','text','',c?c.by:'')+'</div></div>'+
+    felt('c_kontakt','Kontaktperson','text','',c?c.kontaktperson:'')+
+    felt('c_mail','E-mail','email','',c?c.email:'')+
+    felt('c_tlf','Telefon','text','',c?c.telefon:'')+
+    vaelg('c_rolle','Firmaets rolle',[['kunde;ejer','Både kunde og ejer'],
+      ['ejer','Kun ejer af udstyret'],['kunde','Kun rekvirent']],
+      c?c.rolle:'kunde;ejer')+
+    '<button class="knap primaer" id="mja">'+(c?'Gem':'Opret firmaet')+'</button>'+
+    '<button class="knap" id="mnej">Fortryd</button></div>';
+  m.className='vis';
+
+  const vis=t=>{ m.querySelector('#kfejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
+  m.querySelector('#mnej').onclick=()=>{ m.className=''; m.innerHTML=''; };
+  m.querySelector('#mja').onclick=async()=>{
+    const v=id=>m.querySelector('#'+id).value.trim();
+    const d={navn:v('c_navn'),cvr:v('c_cvr'),adresse:v('c_adr'),postnr:v('c_post'),
+             by:v('c_by'),kontaktperson:v('c_kontakt'),email:v('c_mail'),
+             telefon:v('c_tlf'),rolle:v('c_rolle')};
+    if(!d.navn){ vis('Skriv firmaets navn.'); return; }
+    try{
+      if(c) await kald('api_updateCompany',[c.id,d]);
+      else await kald('api_createCompany',[d]);
+      m.className=''; m.innerHTML='';
+      toast(c?'Gemt':'Firmaet er oprettet');
+      c?visKunde(c.id):visKunder();
+    }catch(e){ vis(e.message); }
+  };
+}
+
+/* ---- ét firma med brugere ---- */
+
+async function visKunde(companyId){
+  const [alle,brugere]=await Promise.all([
+    hent('api_companies',[]), hent('api_users',[companyId])
+  ]);
+  const c=alle.find(x=>x.id===companyId);
+  if(!c){ app.innerHTML='<div class="tom"><p>Firmaet findes ikke.</p></div>'; return; }
+  sætTitel(c.navn,brugere.length+' brugere · '+c.antalUdstyr+' stykker udstyr');
+
+  const h=[];
+  h.push('<div class="kort">'+
+    (c.cvr?'<dl class="par"><dt>CVR</dt><dd>'+esc(c.cvr)+'</dd></dl>':'')+
+    (c.adresse?'<dl class="par"><dt>Adresse</dt><dd>'+esc(c.adresse)+'</dd></dl>':'')+
+    (c.kontaktperson?'<dl class="par"><dt>Kontakt</dt><dd>'+esc(c.kontaktperson)+'</dd></dl>':'')+
+    (c.email?'<dl class="par"><dt>E-mail</dt><dd>'+esc(c.email)+'</dd></dl>':'')+
+    (c.telefon?'<dl class="par"><dt>Telefon</dt><dd>'+esc(c.telefon)+'</dd></dl>':'')+
+    '<dl class="par"><dt>Rolle</dt><dd>'+esc(c.rolle)+'</dd></dl></div>');
+  h.push('<button class="knap" id="k_ret" style="min-height:44px;font-size:13.5px;'+
+    'font-weight:500">Ret firmaoplysninger</button>');
+
+  h.push('<h2 class="afsnit">Brugere</h2>');
+  h.push('<button class="knap primaer" id="b_ny">Opret bruger</button>');
+  if(!brugere.length){
+    h.push('<div class="kort" style="color:var(--dim);font-size:13.5px">'+
+      'Ingen brugere endnu. Opret en, og vedkommende kan logge ind med en '+
+      'kode på sin e-mail — helt uden Google-konto.</div>');
+  }
+  for(const b of brugere){
+    h.push('<div class="kort" style="border-left:4px solid '+
+      (b.aktiv==='Nej'?'var(--faint)':b.rolle==='kunde'?'var(--teal)':'var(--lime)')+'"'+
+      (b.aktiv==='Nej'?' style="opacity:.6"':'')+'>'+
+      '<div style="display:flex;justify-content:space-between;gap:10px">'+
+        '<div style="font-weight:600;font-size:15px">'+esc(b.navn)+'</div>'+
+        '<div style="font-size:12.5px;color:var(--dim);flex:none">'+esc(b.rolle)+
+          (b.aktiv==='Nej'?' · lukket':'')+'</div></div>'+
+      '<div class="mono" style="font-size:13px;color:var(--dim);margin-top:4px">'+
+        esc(b.email)+'</div>'+
+      (b.titel?'<div style="font-size:13px;color:var(--faint);margin-top:3px">'+
+        esc(b.titel)+'</div>':'')+
+      '<div style="font-size:12.5px;margin-top:7px;color:'+
+        (b.antalKategorier?'var(--lime)':'var(--amber)')+'">'+
+        (b.antalKategorier
+          ? b.antalKategorier+' kategorier godkendt'
+          : 'Ingen kategorier godkendt — kan ikke se noget udstyr endnu')+'</div>'+
+      '<div class="fanetop" style="margin:11px 0 0">'+
+        '<button data-god="'+esc(b.id)+'">Godkendelser</button>'+
+        '<button data-bret="'+esc(b.id)+'">Ret</button></div>'+
+    '</div>');
+  }
+
+  h.push('<h2 class="afsnit">Hvad kunden må selv</h2>');
+  h.push('<div class="vejl" style="font-size:13px">Skal kunden selv lave wirekontrol, '+
+    'slibe prøvesteder eller efterse løftetilbehør, skal firmaet have en tilladelse. '+
+    'Det sættes i fanen <b>CustomerScopes</b> i regnearket — der er ikke en skærm '+
+    'til det endnu.</div>');
+  app.innerHTML=h.join('');
+
+  $('#k_ret').onclick=()=>firmaArk(c);
+  $('#b_ny').onclick=()=>brugerArk(companyId,null);
+  document.querySelectorAll('[data-god]').forEach(x=>{
+    x.onclick=()=>gå({navn:'godkend',id:x.dataset.god});
+  });
+  document.querySelectorAll('[data-bret]').forEach(x=>{
+    x.onclick=()=>brugerArk(companyId,brugere.find(b=>b.id===x.dataset.bret));
+  });
+}
+
+function brugerArk(companyId,b){
+  const erAdmin=bruger.rolle==='admin';
+  const m=document.getElementById('modal');
+  m.innerHTML='<div class="ark" style="max-height:86vh;overflow-y:auto">'+
+    '<h3>'+(b?'Ret '+esc(b.navn):'Ny bruger')+'</h3>'+
+    '<div id="bfejl"></div>'+
+    (b?'<div class="kort" style="font-size:13.5px"><span class="mono">'+esc(b.email)+
+      '</span><div style="font-size:12px;color:var(--faint);margin-top:4px">'+
+      'E-mailen kan ikke ændres — det er den, login hænger på.</div></div>'
+      :felt('b_mail','E-mail','email','navn@firma.dk',''))+
+    felt('b_navn','Navn','text','',b?b.navn:'')+
+    felt('b_titel','Titel','text','Fx Kranmontør',b?b.titel:'')+
+    felt('b_tlf','Telefon','text','',b?b.telefon:'')+
+    (erAdmin
+      ? vaelg('b_rolle','Rolle',[['kunde','Kunde — ser kun eget udstyr'],
+          ['inspektør','Inspektør — udfører eftersyn'],
+          ['admin','Administrator — kan alt']], b?b.rolle:'kunde')
+      : '<input type="hidden" id="b_rolle" value="kunde">')+
+    (erAdmin&&b
+      ? vaelg('b_sag','Sagkyndig §58',[['Nej','Nej'],['Ja','Ja']],b.sagkyndig)+
+        vaelg('b_saer','Særligt sagkyndig §73',[['Nej','Nej'],['Ja','Ja']],b.saerligtSagkyndig)+
+        vaelg('b_aktiv','Adgang',[['Ja','Aktiv'],['Nej','Lukket']],b.aktiv||'Ja')
+      : '')+
+    (b?'':'<div class="vejl" style="font-size:12.5px">Kompetencefelterne sættes til '+
+      'Nej ved oprettelse. De skal tildeles bevidst — det er dem, der afgør, hvem der '+
+      'må afslutte et 10-års eftersyn.</div>')+
+    '<button class="knap primaer" id="mja">'+(b?'Gem':'Opret bruger')+'</button>'+
+    '<button class="knap" id="mnej">Fortryd</button></div>';
+  m.className='vis';
+
+  const vis=t=>{ m.querySelector('#bfejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
+  const v=id=>m.querySelector('#'+id)?.value?.trim()||'';
+  m.querySelector('#mnej').onclick=()=>{ m.className=''; m.innerHTML=''; };
+  m.querySelector('#mja').onclick=async()=>{
+    try{
+      if(b){
+        const p={navn:v('b_navn'),titel:v('b_titel'),telefon:v('b_tlf')};
+        if(erAdmin){ p.rolle=v('b_rolle'); p.sagkyndig=v('b_sag');
+                     p.saerligtSagkyndig=v('b_saer'); p.aktiv=v('b_aktiv'); }
+        if(!p.navn){ vis('Skriv personens navn.'); return; }
+        await kald('api_updateUser',[b.id,p]);
+      }else{
+        const d={email:v('b_mail'),navn:v('b_navn'),titel:v('b_titel'),
+                 telefon:v('b_tlf'),rolle:v('b_rolle'),companyId};
+        if(!d.email){ vis('Skriv e-mailadressen. Det er den, koden sendes til.'); return; }
+        if(!d.navn){ vis('Skriv personens navn.'); return; }
+        await kald('api_createUser',[d]);
+      }
+      m.className=''; m.innerHTML='';
+      toast(b?'Gemt':'Brugeren er oprettet');
+      visKunde(companyId);
     }catch(e){ vis(e.message); }
   };
 }
