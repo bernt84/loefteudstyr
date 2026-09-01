@@ -1,0 +1,25 @@
+{
+  "name": "Løfteudstyr – eftersyn",
+  "short_name": "Løfteudstyr",
+  "description": "Eftersyn af kraner og løfteudstyr efter Arbejdstilsynets bekendtgørelse nr. 428",
+  "lang": "da-DK",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#11140f",
+  "theme_color": "#11140f",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Scan QR", "short_name": "Scan", "url": "./index.html#scan",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Mine eftersyn", "short_name": "Eftersyn", "url": "./index.html#eftersyn",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
