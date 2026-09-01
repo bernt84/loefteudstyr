@@ -2876,7 +2876,7 @@ async function tegn(){
     else if(rute.navn==='opgaver')  await visOpgaver();
     else if(rute.navn==='familie')  await visFamilie(rute.id);
     else if(rute.navn==='batch')    await visBatch(rute.id);
-    else if(rute.navn==='opret')    await visOpret();
+    else if(rute.navn==='opret')    await visOpret(rute.id);
     else if(rute.navn==='godkend')  await visGodkendelser(rute.id);
     else if(rute.navn==='ndt')      await visNdt(rute.id);
     else if(rute.navn==='qr')       await visQr(rute.id);
@@ -4216,25 +4216,45 @@ function spoergTekst(titel,knaptekst){
  * 19. Opret nyt udstyr
  * ================================================================== */
 
-async function visOpret(){
-  const [famer,steder]=await Promise.all([hent('api_categories',[]),hent('api_allLocations',[])]);
-  const godkendte=famer.flatMap(f=>f.kategorier.filter(k=>k.godkendt).map(k=>({...k,fam:f})));
-  sætTitel('Opret udstyr','Nyt emne i systemet');
+async function visOpret(familieId){
+  const [alle,steder]=await Promise.all([hent('api_categories',[]),hent('api_allLocations',[])]);
 
+  // Kommer man fra en fane, skal kun den families kategorier vises.
+  const famer = familieId ? alle.filter(f=>f.id===familieId) : alle;
+  const godkendte=famer.flatMap(f=>f.kategorier.filter(k=>k.godkendt));
+  const famNavn = familieId && famer[0] ? famer[0].navn : 'Nyt emne i systemet';
+  sætTitel('Opret udstyr',famNavn);
+
+  if(!famer.length){
+    app.innerHTML='<div class="tom"><p>Ukendt kategorigruppe.</p></div>';
+    return;
+  }
   if(!godkendte.length){
-    app.innerHTML='<div class="tom"><p>Du er ikke godkendt til nogen kategorier endnu, '+
-      'så der er ikke noget du kan oprette. Bed administratoren om adgang.</p></div>';
+    const iAlt=alle.flatMap(f=>f.kategorier.filter(k=>k.godkendt)).length;
+    app.innerHTML='<div class="tom"><p>Du er ikke godkendt til nogen kategorier '+
+      (familieId?'under '+esc(famNavn.toLowerCase()):'')+'.</p>'+
+      (iAlt?'<p style="font-size:13.5px">Du er godkendt til '+iAlt+' kategorier under de '+
+        'øvrige faner — prøv der.</p>'
+       :'<p style="font-size:13.5px">Bed administratoren om adgang under Godkendelser.</p>')+
+      '</div>';
     return;
   }
 
-  const h=['<h2 class="afsnit">Kategori</h2>'];
-  for(const f of famer){
-    const mine=f.kategorier.filter(k=>k.godkendt);
-    if(!mine.length) continue;
-    h.push('<div style="font-size:12px;color:var(--faint);margin:10px 0 6px">'+esc(f.navn)+'</div>');
-    h.push('<div class="chips">'+mine.map(k=>
-      '<button class="chip" data-kat="'+esc(k.navn)+'" data-fam="'+esc(f.id)+'">'+
-      esc(k.navn)+'</button>').join('')+'</div>');
+  const h=[];
+  // Én kategori: spring valget over og gå direkte til formularen.
+  if(godkendte.length>1){
+    h.push('<h2 class="afsnit">Kategori</h2>');
+    for(const f of famer){
+      const mine=f.kategorier.filter(k=>k.godkendt);
+      if(!mine.length) continue;
+      if(famer.length>1){
+        h.push('<div style="font-size:12px;color:var(--faint);margin:10px 0 6px">'+
+               esc(f.navn)+'</div>');
+      }
+      h.push('<div class="chips">'+mine.map(k=>
+        '<button class="chip" data-kat="'+esc(k.navn)+'" data-fam="'+esc(f.id)+'">'+
+        esc(k.navn)+'</button>').join('')+'</div>');
+    }
   }
   h.push('<div id="formular" style="display:none"></div>');
   app.innerHTML=h.join('');
@@ -4246,6 +4266,10 @@ async function visOpret(){
       tegnOpretFormular(b.dataset.kat,b.dataset.fam,steder);
     };
   });
+
+  if(godkendte.length===1){
+    tegnOpretFormular(godkendte[0].navn,famer[0].id,steder);
+  }
 }
 
 function felt(id,etiket,type,pladsholder,vaerdi){
