@@ -4721,18 +4721,25 @@ async function visMere(){
     '<span style="display:inline-block;width:17px;height:17px;vertical-align:-3px;'+
     'margin-right:7px">'+IKON.her+'</span>Hvad står her?</button>');
   if(bruger.rolle!=='kunde'){
+    // Logoer og adgang styres inde på det enkelte firma, ikke her.
     h.push('<button class="knap" onclick="gå({navn:\'kunder\'})">Kunder og brugere</button>');
-  }else if(bruger.firmaadmin==='Ja'){
-    h.push('<button class="knap" onclick="gå({navn:\'kolleger\'})">Mine kolleger</button>');
-    h.push('<button class="knap" onclick="gå({navn:\'ejere\'})">Ejere af udstyret</button>');
+  }else{
+    if(bruger.firmaadmin==='Ja'){
+      h.push('<button class="knap" onclick="gå({navn:\'kolleger\'})">Mine kolleger</button>');
+      h.push('<button class="knap" onclick="gå({navn:\'ejere\'})">Ejere af udstyret</button>');
+    }
+    h.push('<button class="knap" onclick="gå({navn:\'firma\'})">Vores firma og logo</button>');
+    h.push('<button class="knap" onclick="gå({navn:\'godkend\'})">Min adgang</button>');
   }
-  h.push('<button class="knap" onclick="gå({navn:\'firma\'})">Firma og logo</button>');
-  h.push('<button class="knap" onclick="gå({navn:\'godkend\'})">Godkendelser</button>');
   h.push('<h2 class="afsnit">Logget ind som</h2><div class="kort">'+
     '<dl class="par"><dt>Navn</dt><dd>'+esc(bruger.navn)+'</dd></dl>'+
     '<dl class="par"><dt>Rolle</dt><dd>'+esc(bruger.rolle)+'</dd></dl>'+
     (bruger.titel?'<dl class="par"><dt>Titel</dt><dd>'+esc(bruger.titel)+'</dd></dl>':'')+
-    '<dl class="par"><dt>Server</dt><dd class="mono" id="serverver">…</dd></dl>'+
+    '<dl class="par"><dt>Server</dt><dd class="mono" id="serverver">henter …</dd></dl>'+
+    (typeof ENDPOINT==='string'
+      ? '<dl class="par"><dt>Forbindelse</dt><dd class="mono" style="font-size:11px">'+
+        esc((ENDPOINT.match(/macros\/s\/([A-Za-z0-9_-]{14})/)||[,'ukendt'])[1])+'…</dd></dl>'
+      : '')+
     '</div>');
   h.push('<button class="knap primaer" data-install id="installer" '+
     'style="margin-top:14px;display:none">Læg appen på hjemmeskærmen</button>');
@@ -4742,8 +4749,18 @@ async function visMere(){
   // er opdateret, uden at man skal gætte.
   kald('api_me').then(d=>{
     const el=$('#serverver');
-    if(el) el.textContent=(d.version||'ukendt').replace('kode-','');
-  }).catch(()=>{ const el=$('#serverver'); if(el) el.textContent='kunne ikke hentes'; });
+    if(!el) return;
+    if(d && d.version){
+      el.textContent=d.version.replace('kode-','');
+      el.style.color='var(--teal)';
+    }else{
+      el.textContent='svarer uden version — gammel kode';
+      el.style.color='var(--amber)';
+    }
+  }).catch(e=>{
+    const el=$('#serverver');
+    if(el){ el.textContent=e.message.slice(0,40); el.style.color='var(--red)'; }
+  });
 
   const inst=$('#installer');
   if(inst){ inst.onclick=installerApp; }
