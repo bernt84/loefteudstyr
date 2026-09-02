@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Løfteudstyr</title>
 <meta name="theme-color" content="#11140f">
-<link rel="manifest" href="./manifest.json">
+<link rel="manifest" href="./manifest.json" id="manifestlink">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="icon" href="./favicon-32.png" sizes="32x32">
 <meta name="mobile-web-app-capable" content="yes">
@@ -314,6 +314,18 @@ body.medfaner main{padding-bottom:96px}
 <div id="modal" role="dialog" aria-modal="true"></div>
 <nav id="faner"></nav>
 
+<script>
+/* Inde i Apps Script findes hverken manifest eller ikoner ved siden af
+   siden. Fjern henvisningerne, så konsollen ikke fyldes med 404. */
+if (typeof google !== 'undefined' && google.script && google.script.run) {
+  ['manifestlink'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.remove();
+  });
+  document.querySelectorAll('link[rel="apple-touch-icon"],link[rel="icon"]')
+    .forEach(function (el) { el.remove(); });
+}
+</script>
 <script>
 /* qrcode-generator 1.4.4 — MIT, Kazuhiko Arase. Indlejret så QR-mærkater
    kan laves uden netforbindelse. */
@@ -2695,7 +2707,23 @@ const køLæg  = p=>_op(KØ,'readwrite',o=>o.add(p));
 
 let idToken=null, sessionToken=null, bruger=null, offline=!navigator.onLine;
 
+/** Kører appen inde i Apps Script frem for på GitHub Pages? */
+const I_APPS_SCRIPT = typeof google!=='undefined' && !!(google.script && google.script.run);
+
 async function kald(action,args=[]){
+  // Inde i Apps Script går kaldet direkte til serveren. Ingen adresse,
+  // intet token — Google ved allerede hvem brugeren er.
+  if(I_APPS_SCRIPT){
+    const d=await new Promise((ok,fejl)=>{
+      google.script.run
+        .withSuccessHandler(ok)
+        .withFailureHandler(e=>fejl(new Error(e && e.message ? e.message : String(e))))
+        .apiKald(action,args);
+    });
+    if(!d || !d.ok) throw new Error((d && d.error) || 'Ukendt fejl.');
+    return d.data;
+  }
+
   if(!ER_OPSAT) throw new Error('Appen mangler client ID og webapp-adresse. Se øverst i index.html.');
   const svar=await fetch(ENDPOINT,{
     method:'POST',
@@ -2714,6 +2742,8 @@ async function kald(action,args=[]){
 
 /** Skrivninger: send nu, ellers læg i kø. Svaret går aldrig tabt. */
 async function skriv(action,args=[],beskrivelse=''){
+  // Ingen offline-kø inde i Apps Script — der er ingen service worker
+  if(I_APPS_SCRIPT) return kald(action,args);
   if(navigator.onLine){
     try{ return await kald(action,args); }
     catch(e){
@@ -2909,6 +2939,22 @@ async function tegn(){
 
 async function visLogin(){
   sætTitel('Løfteudstyr','Eftersyn af kraner og løftegrej');
+
+  // Inde i Apps Script er man allerede logget ind med sin Google-konto
+  if(I_APPS_SCRIPT){
+    app.innerHTML='<div class="midt"><span class="spin"></span></div>';
+    try{
+      const d=await kald('api_me');
+      bruger=d.bruger;
+      historik.length=0;
+      gå({navn:'fane',id:'kraner'},false);
+    }catch(e){
+      app.innerHTML='<div class="tom"><p>'+esc(e.message)+'</p>'+
+        '<button class="knap" onclick="tegn()">Prøv igen</button></div>';
+    }
+    return;
+  }
+
   app.innerHTML=
     (ER_OPSAT?'':'<div class="opsaet"><b>Appen er ikke sat op endnu.</b><br>'+
       'Åbn <code>index.html</code> og udfyld <code>CLIENT_ID</code> og <code>ENDPOINT</code> øverst i filen.</div>')+
@@ -6438,6 +6484,7 @@ addEventListener('appinstalled',()=>{
 });
 
 function kanInstallere(){
+  if(I_APPS_SCRIPT) return false;
   return !erInstalleret() && (installEvent || erIOS());
 }
 
@@ -6490,7 +6537,7 @@ async function installerApp(){
  * ================================================================== */
 
 (async function start(){
-  if('serviceWorker' in navigator){
+  if('serviceWorker' in navigator && !I_APPS_SCRIPT){
     try{ await navigator.serviceWorker.register('./sw.js'); }catch(e){}
   }
   await visNet();
