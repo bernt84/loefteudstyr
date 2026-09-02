@@ -16,10 +16,10 @@ const SHELL_FILES = [
   './',
   './index.html',
   './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
-  './icons/favicon-32.png'
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png',
+  './favicon-32.png'
 ];
 
 // pdf-lib.min.js er ~500 KB og hentes først, når manualen skal læses
