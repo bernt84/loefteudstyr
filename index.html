@@ -2667,6 +2667,11 @@ const ENDPOINT  = 'https://script.google.com/macros/s/AKfycbylHv4oc4jnbwv02-pVD8
 
 const ER_OPSAT = !CLIENT_ID.startsWith('DIT-') && !ENDPOINT.includes('DIT-');
 
+/* Appens egen version, og hvilken serverkode den er skrevet til.
+   Stemmer de ikke, mangler der en ny version i Apps Script. */
+const APP_VERSION = 'app-2026-08-31-v4.2';
+const FORVENTET_SERVER = 'kode-2026-08-31-v4.2';
+
 /* ================================================================== *
  * 2. Lokal database — kø og indstillinger
  * ================================================================== */
@@ -4781,7 +4786,9 @@ async function visMere(){
     '<dl class="par"><dt>Navn</dt><dd>'+esc(bruger.navn)+'</dd></dl>'+
     '<dl class="par"><dt>Rolle</dt><dd>'+esc(bruger.rolle)+'</dd></dl>'+
     (bruger.titel?'<dl class="par"><dt>Titel</dt><dd>'+esc(bruger.titel)+'</dd></dl>':'')+
+    '<dl class="par"><dt>App</dt><dd class="mono">'+esc(APP_VERSION.replace('app-',''))+'</dd></dl>'+
     '<dl class="par"><dt>Server</dt><dd class="mono" id="serverver">henter …</dd></dl>'+
+    '<div id="versionsadvarsel"></div>'+
     (typeof ENDPOINT==='string'
       ? '<dl class="par"><dt>Forbindelse</dt><dd class="mono" style="font-size:11px">'+
         esc((ENDPOINT.match(/macros\/s\/([A-Za-z0-9_-]{14})/)||[,'ukendt'])[1])+'…</dd></dl>'
@@ -4794,14 +4801,28 @@ async function visMere(){
   // Hvilken kodeversion svarer serveren med? Afgør om implementeringen
   // er opdateret, uden at man skal gætte.
   kald('api_me').then(d=>{
-    const el=$('#serverver');
+    const el=$('#serverver'), adv=$('#versionsadvarsel');
     if(!el) return;
-    if(d && d.version){
-      el.textContent=d.version.replace('kode-','');
+    const v=d && d.version;
+    if(!v){
+      el.textContent='svarer uden version'; el.style.color='var(--amber)';
+      return;
+    }
+    el.textContent=v.replace('kode-','');
+    if(v===FORVENTET_SERVER){
       el.style.color='var(--teal)';
     }else{
-      el.textContent='svarer uden version — gammel kode';
-      el.style.color='var(--amber)';
+      el.style.color='var(--red)';
+      if(adv) adv.innerHTML='<div class="arkfejl" style="margin:12px 0 0">'+
+        '<b>Serveren kører en ældre kode end appen.</b><br><br>'+
+        'Appen forventer <span class="mono">'+esc(FORVENTET_SERVER.replace('kode-',''))+
+        '</span>, men serveren svarer <span class="mono">'+esc(v.replace('kode-',''))+
+        '</span>.<br><br>Ret det i Apps Script: <b>Implementer → Administrer '+
+        'implementeringer</b>. Find den, hvis webadresse begynder med '+
+        '<span class="mono">'+esc((ENDPOINT.match(/macros\/s\/([A-Za-z0-9_-]{14})/)||[,''])[1])+
+        '</span>, tryk blyanten, vælg <b>Ny version</b> og implementer.<br><br>'+
+        'Har du flere implementeringer, er det let at opdatere den forkerte — '+
+        'sammenlign webadressen tegn for tegn.</div>';
     }
   }).catch(e=>{
     const el=$('#serverver');
