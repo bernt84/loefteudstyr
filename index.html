@@ -2888,6 +2888,7 @@ async function tegn(){
     else if(rute.navn==='kunder')   await visKunder();
     else if(rute.navn==='kunde')    await visKunde(rute.id);
     else if(rute.navn==='tilladelser') await visTilladelser(rute.id);
+    else if(rute.navn==='opgaver2')  await visOpgaveAdgang(rute.id);
     else if(rute.navn==='kolleger') await visKolleger();
     else if(rute.navn==='ejere')    await visEjere();
     else if(rute.navn==='manual')   await visManual(rute.id);
@@ -6050,7 +6051,8 @@ async function visKunde(companyId){
           ? b.antalKategorier+' kategorier godkendt'
           : 'Ingen kategorier godkendt — kan ikke se noget udstyr endnu')+'</div>'+
       '<div class="fanetop" style="margin:11px 0 0">'+
-        '<button data-god="'+esc(b.id)+'">Godkendelser</button>'+
+        '<button data-god="'+esc(b.id)+'">Kategorier</button>'+
+        '<button data-uop="'+esc(b.id)+'">Opgaver</button>'+
         '<button data-bret="'+esc(b.id)+'">Ret</button></div>'+
     '</div>');
   }
@@ -6067,6 +6069,9 @@ async function visKunde(companyId){
   $('#b_ny').onclick=()=>brugerArk(companyId,null);
   document.querySelectorAll('[data-god]').forEach(x=>{
     x.onclick=()=>gå({navn:'godkend',id:x.dataset.god});
+  });
+  document.querySelectorAll('[data-uop]').forEach(x=>{
+    x.onclick=()=>gå({navn:'opgaver2',id:x.dataset.uop});
   });
   document.querySelectorAll('[data-bret]').forEach(x=>{
     x.onclick=()=>brugerArk(companyId,brugere.find(b=>b.id===x.dataset.bret));
@@ -6151,10 +6156,11 @@ async function visTilladelser(companyId){
   mine.forEach(s=>{ if(s.aktiv==='Ja') aktive[s.scope]=s; });
   sætTitel('Tilladelser',(c?c.navn:companyId)+' · '+Object.keys(aktive).length+' givet');
 
-  const h=['<div class="vejl">Uden en tilladelse kan kunden kun se og hakke af på det, '+
-    'du selv har lagt ud til dem. Giver du dem lov til at efterse løftetilbehør, er '+
-    'det <b>deres mand</b>, der er sagkyndig efter §25 — ikke dig. Derfor kræves '+
-    'et kompetencegrundlag.</div>'];
+  const h=['<div class="vejl">Her bestemmer du, <b>hvad firmaet må</b>. Hvem hos '+
+    'kunden der konkret udfører opgaven, bestemmer deres egen firmaadministrator '+
+    'bagefter — det er hans folk, og hans vurdering af dem.<br><br>'+
+    'Giver du dem lov til at efterse løftetilbehør, er det deres mand, der er '+
+    'sagkyndig efter §25 — ikke dig.</div>'];
 
   for(const k of katalog){
     const s=aktive[k.kode];
@@ -6162,12 +6168,8 @@ async function visTilladelser(companyId){
       'data-id="'+esc(s?s.id:'')+'" style="cursor:pointer">'+
       '<span class="boks">✓</span><span class="txt">'+
         '<span>'+esc(k.tekst)+'</span>'+
-        (s
-          ? '<span class="beskrivelse">'+esc(s.udfoerende||'')+
-            (s.kompetence?' · '+esc(s.kompetence):'')+'</span>'+
-            (s.gyldigTil?'<span class="beskrivelse" style="color:var(--amber)">'+
-              'Gyldig til '+dkDato(s.gyldigTil)+'</span>':'')
-          : '<span class="beskrivelse">Ikke givet</span>')+
+        '<span class="beskrivelse">'+(s?'Firmaet har lov':'Ikke givet')+
+          (s&&s.gyldigTil?' · gyldig til '+dkDato(s.gyldigTil):'')+'</span>'+
       '</span></div>');
   }
   app.innerHTML=h.join('');
@@ -6177,51 +6179,108 @@ async function visTilladelser(companyId){
       const kode=el.dataset.scope, har=el.classList.contains('klar');
       if(har){
         const ja=await bekraeft('Tilbagekald tilladelsen?',
-          'Kunden kan ikke længere udføre opgaven. Historikken bevares.','Tilbagekald',true);
+          'Firmaet kan ikke længere udføre opgaven, og deres folks tildelinger '+
+          'holder op med at virke. Historikken bevares.','Tilbagekald',true);
         if(!ja) return;
         try{ await kald('api_revokeScope',[el.dataset.id,'Tilbagekaldt manuelt']);
              toast('Tilbagekaldt'); visTilladelser(companyId); }
         catch(e){ toast(e.message,true); }
-        return;
+      }else{
+        try{ await kald('api_grantScope',[companyId,kode,{}]);
+             toast('Tilladelsen er givet'); visTilladelser(companyId); }
+        catch(e){ toast(e.message,true); }
       }
-      tilladelsesArk(companyId,kode,
-        (katalog.find(x=>x.kode===kode)||{}).tekst||kode);
     };
   });
 }
 
-function tilladelsesArk(companyId,kode,tekst){
+/* ---- hvem hos kunden udfører hvad ---- */
+
+async function visOpgaveAdgang(userId){
+  const d=await hent('api_userScopes',[userId]);
+  sætTitel('Opgaver',d.bruger.navn);
+
+  const tildelt={};
+  d.tildelte.forEach(t=>{ tildelt[t.scope]=t; });
+
+  const h=[];
+  if(d.erFirmaAdmin){
+    h.push('<div class="vejl" style="border-color:#39432b;background:#1e2410;'+
+      'color:#d8e39a">'+esc(d.bruger.navn)+' er firmaadministrator og har automatisk '+
+      'alt, firmaet har fået lov til.</div>');
+  }
+  if(!d.firmaets.length){
+    h.push('<div class="tom"><p>Firmaet har ikke fået tilladelse til nogen opgaver endnu.</p>'+
+      '<p style="font-size:13.5px">Inspektøren giver tilladelserne. Derefter kan du '+
+      'fordele dem blandt dine folk.</p></div>');
+    app.innerHTML=h.join('');
+    return;
+  }
+
+  h.push('<div class="vejl">Vælg hvilke opgaver '+esc(d.bruger.navn)+' må udføre. '+
+    'Du kan kun vælge blandt det, firmaet har fået lov til.</div>');
+
+  for(const f of d.firmaets){
+    const t=tildelt[f.kode];
+    h.push('<div class="hak'+(t||d.erFirmaAdmin?' klar':'')+'" data-s="'+esc(f.kode)+'" '+
+      'data-id="'+esc(t?t.id:'')+'"'+(d.erFirmaAdmin?'':' style="cursor:pointer"')+'>'+
+      '<span class="boks">✓</span><span class="txt">'+
+        '<span>'+esc(f.tekst)+'</span>'+
+        (t?'<span class="beskrivelse">'+esc(t.kompetence)+'</span>'+
+           (t.gyldigTil?'<span class="beskrivelse" style="color:var(--amber)">Gyldig til '+
+             dkDato(t.gyldigTil)+'</span>':'')
+          :'<span class="beskrivelse">'+(d.erFirmaAdmin?'Som firmaadministrator':'Ikke tildelt')+
+           '</span>')+
+      '</span></div>');
+  }
+  app.innerHTML=h.join('');
+
+  if(d.erFirmaAdmin) return;
+  document.querySelectorAll('[data-s]').forEach(el=>{
+    el.onclick=async()=>{
+      const kode=el.dataset.s, har=el.classList.contains('klar');
+      if(har){
+        const ja=await bekraeft('Fjern opgaven?',
+          esc(d.bruger.navn)+' kan ikke længere udføre den.','Fjern',true);
+        if(!ja) return;
+        try{ await kald('api_revokeUserScope',[el.dataset.id,'Fjernet manuelt']);
+             toast('Fjernet'); visOpgaveAdgang(userId); }
+        catch(e){ toast(e.message,true); }
+        return;
+      }
+      opgaveArk(userId,kode,
+        (d.firmaets.find(x=>x.kode===kode)||{}).tekst||kode, d.bruger.navn);
+    };
+  });
+}
+
+function opgaveArk(userId,kode,tekst,navn){
   const m=document.getElementById('modal');
   m.innerHTML='<div class="ark" style="max-height:86vh;overflow-y:auto">'+
-    '<h3>Giv tilladelse</h3><p>'+esc(tekst)+'</p>'+
-    '<div id="tfejl"></div>'+
-    felt('t_person','Hvem hos kunden udfører opgaven','text','Fx Jens Petersen','')+
+    '<h3>Tildel opgaven</h3><p>'+esc(tekst)+' · '+esc(navn)+'</p>'+
+    '<div id="ofejl"></div>'+
     '<label style="display:block;margin-bottom:11px">'+
       '<span style="display:block;font-size:12.5px;color:var(--dim);margin-bottom:4px">'+
-      'Kompetencegrundlag (påkrævet)</span>'+
-      '<textarea id="t_komp" placeholder="Fx: Oplært af Nicon i DS/EN ISO 4309, dokumenteret 12-04-2025. Kranmontør, 11 års erfaring."></textarea></label>'+
-    felt('t_til','Gyldig til','date','','')+
-    '<div class="vejl" style="font-size:12.5px">Lad datoen stå tom, hvis tilladelsen '+
-    'ikke skal udløbe af sig selv. En udløbsdato er en god idé, hvis den hviler på '+
-    'et kursus, der skal fornyes.</div>'+
-    '<button class="knap primaer" id="mja">Giv tilladelsen</button>'+
+      'På hvilket grundlag (påkrævet)</span>'+
+      '<textarea id="o_komp" placeholder="Fx: Oplært af Jens Jensen i DS/EN ISO 4309, dokumenteret 12-04-2025. Kranmontør, 11 års erfaring."></textarea></label>'+
+    felt('o_til','Gyldig til','date','','')+
+    '<div class="vejl" style="font-size:12.5px">Lad datoen stå tom, hvis tildelingen '+
+    'ikke skal udløbe. En udløbsdato er en god idé, hvis den hviler på et kursus, '+
+    'der skal fornyes.</div>'+
+    '<button class="knap primaer" id="mja">Tildel</button>'+
     '<button class="knap" id="mnej">Fortryd</button></div>';
   m.className='vis';
 
-  const vis=t=>{ m.querySelector('#tfejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
+  const vis=t=>{ m.querySelector('#ofejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
   m.querySelector('#mnej').onclick=()=>{ m.className=''; m.innerHTML=''; };
   m.querySelector('#mja').onclick=async()=>{
-    const person=m.querySelector('#t_person').value.trim();
-    const komp=m.querySelector('#t_komp').value.trim();
-    const til=m.querySelector('#t_til').value;
-    if(!person){ vis('Skriv hvem hos kunden der udfører opgaven.'); return; }
-    if(!komp){ vis('Skriv kompetencegrundlaget. Uden det kan tilladelsen ikke dokumenteres.'); return; }
+    const komp=m.querySelector('#o_komp').value.trim();
+    const til=m.querySelector('#o_til').value;
+    if(!komp){ vis('Skriv på hvilket grundlag personen kan udføre opgaven.'); return; }
     try{
-      await kald('api_grantScope',[companyId,kode,
-        {udfoerende:person,kompetence:komp,gyldigTil:til||''}]);
+      await kald('api_grantUserScope',[userId,kode,komp,til||'']);
       m.className=''; m.innerHTML='';
-      toast('Tilladelsen er givet');
-      visTilladelser(companyId);
+      toast('Tildelt'); visOpgaveAdgang(userId);
     }catch(e){ vis(e.message); }
   };
 }
@@ -6294,7 +6353,8 @@ async function visKolleger(){
         (b.antalKategorier?'var(--lime)':'var(--amber)')+'">'+
         (b.antalKategorier?b.antalKategorier+' kategorier':'Ingen kategorier — ser intet')+'</div>'+
       (erMig?'':'<div class="fanetop" style="margin:11px 0 0">'+
-        '<button data-kg="'+esc(b.id)+'">Adgang</button>'+
+        '<button data-ko="'+esc(b.id)+'">Opgaver</button>'+
+        '<button data-kg="'+esc(b.id)+'">Kategorier</button>'+
         '<button data-kr="'+esc(b.id)+'">Ret</button></div>')+
     '</div>');
   }
@@ -6303,6 +6363,9 @@ async function visKolleger(){
   $('#kol_ny').onclick=()=>brugerArk(bruger.companyId,null);
   document.querySelectorAll('[data-kg]').forEach(x=>{
     x.onclick=()=>gå({navn:'godkend',id:x.dataset.kg});
+  });
+  document.querySelectorAll('[data-ko]').forEach(x=>{
+    x.onclick=()=>gå({navn:'opgaver2',id:x.dataset.ko});
   });
   document.querySelectorAll('[data-kr]').forEach(x=>{
     x.onclick=()=>brugerArk(bruger.companyId,brugere.find(b=>b.id===x.dataset.kr));
