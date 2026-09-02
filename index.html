@@ -4732,11 +4732,19 @@ async function visMere(){
     '<dl class="par"><dt>Navn</dt><dd>'+esc(bruger.navn)+'</dd></dl>'+
     '<dl class="par"><dt>Rolle</dt><dd>'+esc(bruger.rolle)+'</dd></dl>'+
     (bruger.titel?'<dl class="par"><dt>Titel</dt><dd>'+esc(bruger.titel)+'</dd></dl>':'')+
+    '<dl class="par"><dt>Server</dt><dd class="mono" id="serverver">…</dd></dl>'+
     '</div>');
   h.push('<button class="knap primaer" data-install id="installer" '+
     'style="margin-top:14px;display:none">Læg appen på hjemmeskærmen</button>');
   h.push('<button class="knap fare" id="udlog" style="margin-top:8px">Log ud</button>');
   app.innerHTML=h.join('');
+  // Hvilken kodeversion svarer serveren med? Afgør om implementeringen
+  // er opdateret, uden at man skal gætte.
+  kald('api_me').then(d=>{
+    const el=$('#serverver');
+    if(el) el.textContent=(d.version||'ukendt').replace('kode-','');
+  }).catch(()=>{ const el=$('#serverver'); if(el) el.textContent='kunne ikke hentes'; });
+
   const inst=$('#installer');
   if(inst){ inst.onclick=installerApp; }
   opdaterInstallKnap();
@@ -6068,8 +6076,10 @@ async function visKunde(companyId){
     (c.email?'<dl class="par"><dt>E-mail</dt><dd>'+esc(c.email)+'</dd></dl>':'')+
     (c.telefon?'<dl class="par"><dt>Telefon</dt><dd>'+esc(c.telefon)+'</dd></dl>':'')+
     '</div>');
-  h.push('<button class="knap" id="k_ret" style="min-height:44px;font-size:13.5px;'+
-    'font-weight:500">Ret firmaoplysninger</button>');
+  h.push('<div class="fanetop">'+
+    '<button id="k_ret">Ret oplysninger</button>'+
+    '<button id="k_logo">Logo</button></div>');
+  h.push('<div id="logovis"></div>');
 
   h.push('<h2 class="afsnit">Brugere</h2>');
   h.push('<button class="knap primaer" id="b_ny">Opret bruger</button>');
@@ -6110,6 +6120,8 @@ async function visKunde(companyId){
   app.innerHTML=h.join('');
 
   $('#k_ret').onclick=()=>firmaArk(c);
+  $('#k_logo').onclick=()=>visFirmaLogo(companyId,c.navn);
+  if(c.harLogo) visFirmaLogo(companyId,c.navn);
   $('#b_ny').onclick=()=>brugerArk(companyId,null);
   document.querySelectorAll('[data-god]').forEach(x=>{
     x.onclick=()=>gå({navn:'godkend',id:x.dataset.god});
@@ -6263,6 +6275,39 @@ function opgaveArk(userId,kode,tekst,navn){
       m.className=''; m.innerHTML='';
       toast('Tildelt'); visAdgang(userId);
     }catch(e){ vis(e.message); }
+  };
+}
+
+/** Logo for ét firma. Bruges både af inspektøren og af kunden selv. */
+async function visFirmaLogo(companyId,navn){
+  const boks=$('#logovis');
+  if(!boks) return;
+  boks.innerHTML='<div class="kort" style="text-align:center;padding:20px;background:#fff">'+
+    '<span class="spin"></span></div>'+
+    '<label class="knap" style="text-align:center;cursor:pointer">Upload logo'+
+    '<input type="file" accept="image/*" id="logofil2" hidden></label>'+
+    '<div class="vejl" style="font-size:13px">Logoet kommer på de rapporter og skemaer, '+
+    'der sendes til '+esc(navn)+'. PNG eller JPG, gerne mindst 600 px bred.</div>';
+
+  try{
+    const l=await kald('api_logoData',[companyId]);
+    boks.querySelector('.kort').innerHTML=l
+      ? '<img src="data:'+l.mime+';base64,'+l.base64+'" style="max-width:100%;max-height:120px">'
+      : '<span style="color:#888;font-size:14px">Intet logo uploadet</span>';
+  }catch(e){
+    boks.querySelector('.kort').innerHTML=
+      '<span style="color:#888;font-size:14px">Intet logo uploadet</span>';
+  }
+
+  boks.querySelector('#logofil2').onchange=async ev=>{
+    const fil=ev.target.files[0]; if(!fil) return;
+    toast('Uploader logo …');
+    try{
+      const b=await komprimer(fil,800,0.85);
+      await kald('api_uploadLogo',[companyId,b.base64,'image/jpeg',fil.name]);
+      toast('Logoet er gemt');
+      visFirmaLogo(companyId,navn);
+    }catch(e){ toast(e.message,true); }
   };
 }
 
