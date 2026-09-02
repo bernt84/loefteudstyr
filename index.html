@@ -5990,7 +5990,7 @@ async function visKunder(){
       '<h3>'+esc(c.navn)+'</h3>'+
       '<div class="meta">'+
         (c.cvr?'<span class="mono">CVR '+esc(c.cvr)+'</span>':'')+
-        (c.adresse?'<span>'+esc(c.adresse)+'</span>':'')+'</div>'+
+        (c.fuldAdresse?'<span>'+esc(c.fuldAdresse)+'</span>':'')+'</div>'+
       '<div class="termin ok">'+c.antalBrugere+' brugere · '+c.antalUdstyr+' stykker udstyr'+
         (c.aktiv==='Nej'?' · deaktiveret':'')+'</div>'+
       '<div class="merker">'+
@@ -6017,7 +6017,7 @@ function firmaArk(c,erEjer){
     '<div id="kfejl"></div>'+
     felt('c_navn','Firmanavn','text','Fx Kran og Svejs ApS',c?c.navn:'')+
     felt('c_cvr','CVR','text','8 cifre',c?c.cvr:'')+
-    felt('c_adr','Adresse','text','',c?(c.adresse||'').split(',')[0]:'')+
+    felt('c_adr','Adresse','text','',c?c.adresse:'')+
     '<div style="display:flex;gap:10px">'+
       '<div style="width:38%">'+felt('c_post','Postnr','text','',c?c.postnr:'')+'</div>'+
       '<div style="flex:1">'+felt('c_by','By','text','',c?c.by:'')+'</div></div>'+
@@ -6063,7 +6063,7 @@ async function visKunde(companyId){
   const h=[];
   h.push('<div class="kort">'+
     (c.cvr?'<dl class="par"><dt>CVR</dt><dd>'+esc(c.cvr)+'</dd></dl>':'')+
-    (c.adresse?'<dl class="par"><dt>Adresse</dt><dd>'+esc(c.adresse)+'</dd></dl>':'')+
+    (c.fuldAdresse?'<dl class="par"><dt>Adresse</dt><dd>'+esc(c.fuldAdresse)+'</dd></dl>':'')+
     (c.kontaktperson?'<dl class="par"><dt>Kontakt</dt><dd>'+esc(c.kontaktperson)+'</dd></dl>':'')+
     (c.email?'<dl class="par"><dt>E-mail</dt><dd>'+esc(c.email)+'</dd></dl>':'')+
     (c.telefon?'<dl class="par"><dt>Telefon</dt><dd>'+esc(c.telefon)+'</dd></dl>':'')+
@@ -6288,8 +6288,8 @@ async function visEjere(){
       '<div style="font-weight:600;font-size:15px">'+esc(c.navn)+'</div>'+
       (c.cvr?'<div class="mono" style="font-size:13px;color:var(--dim);margin-top:4px">'+
         'CVR '+esc(c.cvr)+'</div>':'')+
-      (c.adresse?'<div style="font-size:13px;color:var(--faint);margin-top:3px">'+
-        esc(c.adresse)+'</div>':'')+
+      (c.fuldAdresse?'<div style="font-size:13px;color:var(--faint);margin-top:3px">'+
+        esc(c.fuldAdresse)+'</div>':'')+
       (c.kontaktperson?'<div style="font-size:13px;color:var(--dim);margin-top:5px">'+
         esc(c.kontaktperson)+(c.email?' · '+esc(c.email):'')+'</div>':'')+
       '<div style="font-size:12.5px;color:var(--lime);margin-top:7px">'+
