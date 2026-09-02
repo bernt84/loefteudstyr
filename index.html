@@ -2920,9 +2920,19 @@ async function visLogin(){
         '<span style="font-size:12.5px;color:var(--faint)">eller</span>'+
         '<div style="flex:1;height:1px;background:var(--line)"></div></div>'+
       '<div id="kodeboks"></div>'+
+      '<div id="installtilbud"></div>'+
     '</div>';
 
   tegnKodeLogin();
+
+  if(kanInstallere()){
+    $('#installtilbud').innerHTML=
+      '<h2 class="afsnit">Tip</h2>'+
+      '<button class="knap" data-install id="installer2">Læg appen på hjemmeskærmen</button>'+
+      '<div class="vejl" style="font-size:13px">Så åbner den som en app, og du kan '+
+      'svare på punkter uden dækning.</div>';
+    $('#installer2').onclick=installerApp;
+  }
 
   if(!ER_OPSAT) return;
   tegnGoogleKnap();
@@ -4678,8 +4688,14 @@ async function visMere(){
     '<dl class="par"><dt>Rolle</dt><dd>'+esc(bruger.rolle)+'</dd></dl>'+
     (bruger.titel?'<dl class="par"><dt>Titel</dt><dd>'+esc(bruger.titel)+'</dd></dl>':'')+
     '</div>');
-  h.push('<button class="knap fare" id="udlog" style="margin-top:14px">Log ud</button>');
+  h.push('<button class="knap primaer" data-install id="installer" '+
+    'style="margin-top:14px;display:none">Læg appen på hjemmeskærmen</button>');
+  h.push('<button class="knap fare" id="udlog" style="margin-top:8px">Log ud</button>');
   app.innerHTML=h.join('');
+  const inst=$('#installer');
+  if(inst){ inst.onclick=installerApp; }
+  opdaterInstallKnap();
+
   $('#udlog').onclick=async()=>{
     if(await bekraeft('Log ud?','Svar der ikke er sendt endnu bliver liggende og sendes, når du logger ind igen.','Log ud',true)) logUd();
   };
@@ -6291,6 +6307,80 @@ async function visKolleger(){
   document.querySelectorAll('[data-kr]').forEach(x=>{
     x.onclick=()=>brugerArk(bruger.companyId,brugere.find(b=>b.id===x.dataset.kr));
   });
+}
+
+
+/* ================================================================== *
+ * Installation på hjemmeskærmen
+ *
+ * Chrome og Android giver os "beforeinstallprompt" og kan installere
+ * med ét tryk. iOS/Safari har ingen API — der kan vi kun vise, hvor
+ * knappen sidder.
+ * ================================================================== */
+
+let installEvent=null;
+const erInstalleret=()=>matchMedia('(display-mode: standalone)').matches
+  || navigator.standalone===true;
+const erIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+
+addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  installEvent=e;
+  opdaterInstallKnap();
+});
+addEventListener('appinstalled',()=>{
+  installEvent=null;
+  toast('Appen er installeret');
+  opdaterInstallKnap();
+});
+
+function kanInstallere(){
+  return !erInstalleret() && (installEvent || erIOS());
+}
+
+function opdaterInstallKnap(){
+  document.querySelectorAll('[data-install]').forEach(b=>{
+    b.style.display=kanInstallere()?'':'none';
+  });
+}
+
+async function installerApp(){
+  if(erInstalleret()){ toast('Appen er allerede installeret'); return; }
+
+  if(installEvent){
+    installEvent.prompt();
+    const svar=await installEvent.userChoice;
+    installEvent=null;
+    opdaterInstallKnap();
+    if(svar.outcome!=='accepted') toast('Installationen blev afbrudt');
+    return;
+  }
+
+  // iOS og alt andet: vis hvor knappen sidder
+  const m=document.getElementById('modal');
+  const ios=erIOS();
+  m.innerHTML='<div class="ark" style="max-height:86vh;overflow-y:auto">'+
+    '<h3>Læg appen på hjemmeskærmen</h3>'+
+    '<p>Så åbner den som en app, og svar kan gives uden dækning.</p>'+
+    (ios
+      ? '<div class="kort" style="font-size:14.5px">'+
+        '<div style="font-weight:600;margin-bottom:8px">På iPhone og iPad</div>'+
+        '<div style="color:#cfd8c8">1 · Tryk på <b>Del</b>-knappen i bunden af Safari '+
+        '— firkanten med pilen op.<br><br>'+
+        '2 · Rul ned og vælg <b>Føj til hjemmeskærm</b>.<br><br>'+
+        '3 · Tryk <b>Tilføj</b> øverst til højre.</div>'+
+        '<div style="font-size:12.5px;color:var(--amber);margin-top:10px">'+
+        'Det virker kun i Safari. Bruger du Chrome på iPhone, så åbn siden i Safari først.'+
+        '</div></div>'
+      : '<div class="kort" style="font-size:14.5px">'+
+        '<div style="font-weight:600;margin-bottom:8px">På Android</div>'+
+        '<div style="color:#cfd8c8">1 · Tryk på menuen med de tre prikker øverst til højre.'+
+        '<br><br>2 · Vælg <b>Installer app</b> eller <b>Føj til startskærm</b>.</div></div>')+
+    '<button class="knap primaer" id="mja">Luk</button></div>';
+  m.className='vis';
+  m.querySelector('#mja').onclick=()=>{ m.className=''; m.innerHTML=''; };
+  m.onclick=e=>{ if(e.target===m){ m.className=''; m.innerHTML=''; } };
 }
 
 /* ================================================================== *
