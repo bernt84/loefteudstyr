@@ -8,7 +8,7 @@
  * tømmer den — både ved Background Sync og ved almindelig 'online'.
  */
 
-const VERSION = 'loefteudstyr-v1.0.0';
+const VERSION = 'loefteudstyr-v1.1.0';
 const SHELL = VERSION + '-shell';
 const DATA = VERSION + '-data';
 
@@ -63,7 +63,32 @@ self.addEventListener('fetch', (e) => {
 
   if (e.request.method !== 'GET') return;
 
-  // Skallen: cache først, så appen åbner øjeblikkeligt og uden net.
+  // Selve appen hentes fra nettet først. Med cache først så brugeren en
+  // gammel udgave, indtil browseren blev ryddet manuelt — og en rettelse
+  // slog aldrig igennem ude hos folk.
+  const erAppen = e.request.mode === 'navigate' ||
+                  url.pathname.endsWith('/') ||
+                  url.pathname.endsWith('/index.html');
+
+  if (erAppen) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => {
+          if (res && res.ok) {
+            const kopi = res.clone();
+            caches.open(SHELL).then((c) => c.put(e.request, kopi));
+          }
+          return res;
+        })
+        // Uden net serveres den senest hentede udgave
+        .catch(() => caches.match(e.request)
+          .then((h) => h || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Alt andet — ikoner, skrifttyper, pdf-lib — tages fra cachen først.
+  // Det er tungt og ændrer sig stort set aldrig.
   e.respondWith(
     caches.match(e.request).then((hit) => {
       if (hit) {
