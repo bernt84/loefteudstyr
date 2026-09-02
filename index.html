@@ -2669,8 +2669,8 @@ const ER_OPSAT = !CLIENT_ID.startsWith('DIT-') && !ENDPOINT.includes('DIT-');
 
 /* Appens egen version, og hvilken serverkode den er skrevet til.
    Stemmer de ikke, mangler der en ny version i Apps Script. */
-const APP_VERSION = 'app-2026-08-31-v4.2';
-const FORVENTET_SERVER = 'kode-2026-08-31-v4.2';
+const APP_VERSION = 'app-2026-08-31-v4.4';
+const FORVENTET_SERVER = 'kode-2026-08-31-v4.4';
 
 /* ================================================================== *
  * 2. Lokal database — kø og indstillinger
@@ -4465,6 +4465,14 @@ async function visAdgang(userId){
     hent('api_userScopes',[mål]).catch(()=>null)
   ]);
 
+  const måRette = erAdmin || (bruger.rolle==='kunde' && bruger.firmaadmin==='Ja'
+                              && mål!==bruger.id) || bruger.rolle==='inspektør';
+
+  // Egne folk: du står selv inde for kompetencen og skriver grundlaget.
+  // En kundes folk: du giver kun adgang — de dokumenterer selv.
+  const egetFirma = !målBruger.companyId || målBruger.companyId===bruger.companyId;
+  const skalSkriveGrundlag = !erAdmin || egetFirma;
+
   const aktive={};
   kat.forEach(k=>{ if(k.aktiv==='Ja') aktive[k.kategori]=k; });
   sætTitel('Adgang',målBruger.navn+(målErAdmin?' · administrator':''));
@@ -4484,14 +4492,31 @@ async function visAdgang(userId){
   }
 
   /* ---- 1. hvilket udstyr ---- */
+  const alleKat=famer.flatMap(f=>f.kategorier.map(k=>k.navn));
+  const antalGodk=alleKat.filter(k=>aktive[k]).length;
+
   h.push('<h2 class="afsnit">Hvilket udstyr</h2>');
   h.push('<div class="vejl" style="font-size:13px">Uden en kategori ser '+
-    esc(målBruger.navn)+' bogstaveligt talt ingenting. Udstyret sendes ikke fra serveren.</div>');
+    esc(målBruger.navn)+' bogstaveligt talt ingenting. Udstyret sendes ikke fra serveren.'+
+    (måRette && !skalSkriveGrundlag
+      ? '<br><br>Du giver kun <b>adgang</b>. Det er firmaets eget ansvar at dokumentere '+
+        'medarbejderens erfaring — deres firmaadministrator skriver grundlaget.'
+      : '')+'</div>');
+  h.push('<div class="fanetop">'+
+    '<button data-alle="til">Godkend alle '+alleKat.length+'</button>'+
+    (antalGodk?'<button data-alle="fra">Fjern alle</button>':'')+'</div>');
 
   for(const f of famer){
-    const antal=f.kategorier.filter(k=>aktive[k.navn]).length;
-    h.push('<div style="font-size:12px;color:var(--faint);margin:12px 0 6px">'+
-      esc(f.navn)+' · '+antal+' af '+f.kategorier.length+'</div>');
+    const iFam=f.kategorier.map(k=>k.navn);
+    const antal=iFam.filter(k=>aktive[k]).length;
+    h.push('<div style="display:flex;justify-content:space-between;align-items:center;'+
+      'gap:10px;margin:14px 0 6px">'+
+      '<div style="font-size:12px;color:var(--faint)">'+esc(f.navn)+' · '+antal+
+        ' af '+iFam.length+'</div>'+
+      '<button data-fam="'+esc(f.id)+'" data-famtil="'+(antal===iFam.length?'fra':'til')+'" '+
+        'style="flex:none;border:1px solid var(--line);background:var(--panel);'+
+        'color:var(--dim);border-radius:99px;padding:6px 12px;font-size:12px;cursor:pointer">'+
+        (antal===iFam.length?'Fjern alle':'Vælg alle')+'</button></div>');
     for(const k of f.kategorier){
       const g=aktive[k.navn];
       h.push('<div class="hak'+(g?' klar':'')+'" data-kat="'+esc(k.navn)+'" '+
@@ -4539,8 +4564,46 @@ async function visAdgang(userId){
 
   document.querySelectorAll('[data-u]').forEach(b=>{ b.onclick=()=>visAdgang(b.dataset.u); });
 
-  const måRette = erAdmin || (bruger.rolle==='kunde' && bruger.firmaadmin==='Ja'
-                              && mål!==bruger.id) || bruger.rolle==='inspektør';
+  /* ---- flere ad gangen ---- */
+  async function bunke(navne,til){
+    if(!navne.length){ toast('Der er ikke noget at gøre.'); return; }
+    try{
+      if(til){
+        let komp='';
+        if(skalSkriveGrundlag){
+          komp=await spoergTekst('Grundlag for '+navne.length+' kategorier','Godkend alle');
+          if(komp===null) return;
+          if(!komp.trim()){ toast('Skriv grundlaget. Det gælder alle de valgte.',true); return; }
+        }
+        const r=await kald('api_grantCategories',[mål,navne,komp,'']);
+        toast(r.tildelt+' kategorier godkendt'+(r.sprunget.length?' · '+r.sprunget.length+' sprunget over':''));
+      }else{
+        const ja=await bekraeft('Fjern '+navne.length+' kategorier?',
+          målBruger.navn+' mister adgang til alt udstyr i dem.','Fjern',true);
+        if(!ja) return;
+        const r=await kald('api_revokeCategories',[mål,navne,'Fjernet i bunke']);
+        toast(r.fjernet+' fjernet');
+      }
+      visAdgang(mål);
+    }catch(e){ toast(e.message,true); }
+  }
+
+  document.querySelectorAll('[data-alle]').forEach(b=>{
+    if(!måRette){ b.disabled=true; return; }
+    b.onclick=()=>{
+      const til=b.dataset.alle==='til';
+      bunke(til?alleKat.filter(k=>!aktive[k]):alleKat.filter(k=>aktive[k]), til);
+    };
+  });
+  document.querySelectorAll('[data-fam]').forEach(b=>{
+    if(!måRette){ b.disabled=true; return; }
+    b.onclick=()=>{
+      const f=famer.find(x=>x.id===b.dataset.fam);
+      const navne=f.kategorier.map(k=>k.navn);
+      const til=b.dataset.famtil==='til';
+      bunke(til?navne.filter(k=>!aktive[k]):navne.filter(k=>aktive[k]), til);
+    };
+  });
 
   document.querySelectorAll('[data-kat]').forEach(el=>{
     if(!måRette){ el.style.cursor='default'; return; }
@@ -4553,9 +4616,12 @@ async function visAdgang(userId){
           if(!ja) return;
           await kald('api_revokeCategory',[el.dataset.kid,'Fjernet manuelt']);
         }else{
-          const komp=await spoergTekst('Godkend til "'+k+'"','Godkend');
-          if(komp===null) return;
-          if(!komp.trim()){ toast('Skriv kompetencegrundlaget.',true); return; }
+          let komp='';
+          if(skalSkriveGrundlag){
+            komp=await spoergTekst('Godkend til "'+k+'"','Godkend');
+            if(komp===null) return;
+            if(!komp.trim()){ toast('Skriv kompetencegrundlaget.',true); return; }
+          }
           await kald('api_grantCategory',[mål,k,komp,'']);
         }
         visAdgang(mål);
@@ -6184,11 +6250,19 @@ async function visKunde(companyId){
         esc(b.email)+'</div>'+
       (b.titel?'<div style="font-size:13px;color:var(--faint);margin-top:3px">'+
         esc(b.titel)+'</div>':'')+
-      '<div style="font-size:12.5px;margin-top:7px;color:'+
-        (b.antalKategorier?'var(--lime)':'var(--amber)')+'">'+
-        (b.antalKategorier
-          ? b.antalKategorier+' kategorier godkendt'
-          : 'Ingen kategorier godkendt — kan ikke se noget udstyr endnu')+'</div>'+
+      (b.rolle==='admin'
+        ? '<div style="font-size:12.5px;margin-top:7px;color:var(--red)">'+
+          'Administrator — ser alle kunder og alt udstyr i hele systemet</div>'
+        : '<div style="font-size:12.5px;margin-top:7px;color:'+
+          (b.antalKategorier?'var(--lime)':'var(--amber)')+'">'+
+          (b.antalKategorier
+            ? b.antalKategorier+' kategorier godkendt'
+            : 'Ingen kategorier godkendt — kan ikke se noget udstyr endnu')+'</div>')+
+      (b.rolle==='admin'&&b.companyId&&b.companyId!==bruger.companyId
+        ? '<div class="arkfejl" style="margin:8px 0 0;font-size:12.5px">'+
+          'En bruger hos en kunde bør ikke være administrator. Sæt rollen til '+
+          '<b>Kunde</b> og slå "Må styre sine kolleger" til i stedet.</div>'
+        : '')+
       '<div class="fanetop" style="margin:11px 0 0">'+
         '<button data-god="'+esc(b.id)+'">Adgang</button>'+
         '<button data-bret="'+esc(b.id)+'">Ret</button></div>'+
@@ -6459,9 +6533,13 @@ async function visKolleger(){
         esc(b.email)+'</div>'+
       (b.titel?'<div style="font-size:13px;color:var(--faint);margin-top:3px">'+
         esc(b.titel)+'</div>':'')+
-      '<div style="font-size:12.5px;margin-top:7px;color:'+
-        (b.antalKategorier?'var(--lime)':'var(--amber)')+'">'+
-        (b.antalKategorier?b.antalKategorier+' kategorier':'Ingen kategorier — ser intet')+'</div>'+
+      (b.rolle==='admin'
+        ? '<div style="font-size:12.5px;margin-top:7px;color:var(--dim)">'+
+          'Administrator — ser alt</div>'
+        : '<div style="font-size:12.5px;margin-top:7px;color:'+
+          (b.antalKategorier?'var(--lime)':'var(--amber)')+'">'+
+          (b.antalKategorier?b.antalKategorier+' kategorier':'Ingen kategorier — ser intet')+
+          '</div>')+
       (erMig?'':'<div class="fanetop" style="margin:11px 0 0">'+
         '<button data-kg="'+esc(b.id)+'">Adgang</button>'+
         '<button data-kr="'+esc(b.id)+'">Ret</button></div>')+
