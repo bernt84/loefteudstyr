@@ -2877,7 +2877,7 @@ async function tegn(){
     else if(rute.navn==='familie')  await visFamilie(rute.id);
     else if(rute.navn==='batch')    await visBatch(rute.id);
     else if(rute.navn==='opret')    await visOpret(rute.id);
-    else if(rute.navn==='godkend')  await visGodkendelser(rute.id);
+    else if(rute.navn==='godkend')  await visAdgang(rute.id);
     else if(rute.navn==='ndt')      await visNdt(rute.id);
     else if(rute.navn==='qr')       await visQr(rute.id);
     else if(rute.navn==='fotos')    await visFotos(rute.id);
@@ -2888,7 +2888,6 @@ async function tegn(){
     else if(rute.navn==='kunder')   await visKunder();
     else if(rute.navn==='kunde')    await visKunde(rute.id);
     else if(rute.navn==='tilladelser') await visTilladelser(rute.id);
-    else if(rute.navn==='opgaver2')  await visOpgaveAdgang(rute.id);
     else if(rute.navn==='kolleger') await visKolleger();
     else if(rute.navn==='ejere')    await visEjere();
     else if(rute.navn==='manual')   await visManual(rute.id);
@@ -4402,24 +4401,22 @@ function tegnOpretFormular(kategori,familie,steder){
  * 20. Godkendelser — hvem må hvad
  * ================================================================== */
 
-async function visGodkendelser(userId){
+async function visAdgang(userId){
   const erAdmin=bruger.rolle==='admin';
-  const brugere=erAdmin?await hent('api_list',['Users',{}]):[];
-  // Admin har alle kategorier implicit — der er intet at hakke af på sig selv,
-  // så vi lander på en anden bruger, hvis der er en.
-  const mål=userId||(erAdmin&&brugere.find(b=>b.rolle!=='admin')?.id)||bruger.id;
+  const brugere=await hent('api_users',[]).catch(()=>[]);
+  const mål=userId||bruger.id;
   const målBruger=brugere.find(b=>b.id===mål)||bruger;
   const målErAdmin=(målBruger.rolle||'')==='admin';
 
-  const [famer,mine]=await Promise.all([
+  const [famer,kat,ops]=await Promise.all([
     hent('api_categories',[]),
-    målErAdmin?Promise.resolve([]):hent('api_userCategories',[mål])
+    målErAdmin?Promise.resolve([]):hent('api_userCategories',[mål]),
+    hent('api_userScopes',[mål]).catch(()=>null)
   ]);
-  const aktive={};
-  mine.forEach(k=>{ if(k.aktiv==='Ja') aktive[k.kategori]=k; });
 
-  sætTitel('Godkendelser', målErAdmin?'Administrator':
-    målBruger.navn+' · '+Object.keys(aktive).length+' kategorier');
+  const aktive={};
+  kat.forEach(k=>{ if(k.aktiv==='Ja') aktive[k.kategori]=k; });
+  sætTitel('Adgang',målBruger.navn+(målErAdmin?' · administrator':''));
 
   const h=[];
   if(erAdmin && brugere.length>1){
@@ -4429,59 +4426,106 @@ async function visGodkendelser(userId){
   }
 
   if(målErAdmin){
-    h.push('<div class="vejl">Administratoren har adgang til alle kategorier og kan '+
-           'ikke begrænses. Vælg en anden bruger ovenfor for at styre, hvad '+
-           'vedkommende må arbejde med.</div>');
-  }else if(!erAdmin){
-    h.push('<div class="vejl">Her står hvad du er godkendt til. Er en kategori ikke '+
-           'godkendt, findes udstyret i den slet ikke for dig. Kun administratoren '+
-           'kan ændre det.</div>');
-  }else{
-    h.push('<div class="vejl">Tryk på en kategori for at godkende eller tilbagekalde. '+
-           'Uden godkendelse kan brugeren hverken se eller efterse udstyr i kategorien.</div>');
+    h.push('<div class="vejl">Administratoren har adgang til alt og kan ikke begrænses.</div>');
+    app.innerHTML=h.join('');
+    document.querySelectorAll('[data-u]').forEach(b=>{ b.onclick=()=>visAdgang(b.dataset.u); });
+    return;
   }
 
+  /* ---- 1. hvilket udstyr ---- */
+  h.push('<h2 class="afsnit">Hvilket udstyr</h2>');
+  h.push('<div class="vejl" style="font-size:13px">Uden en kategori ser '+
+    esc(målBruger.navn)+' bogstaveligt talt ingenting. Udstyret sendes ikke fra serveren.</div>');
+
   for(const f of famer){
-    h.push('<h2 class="afsnit">'+esc(f.navn)+'</h2>');
+    const antal=f.kategorier.filter(k=>aktive[k.navn]).length;
+    h.push('<div style="font-size:12px;color:var(--faint);margin:12px 0 6px">'+
+      esc(f.navn)+' · '+antal+' af '+f.kategorier.length+'</div>');
     for(const k of f.kategorier){
       const g=aktive[k.navn];
-      const klar=målErAdmin||!!g;
-      h.push('<div class="hak'+(klar?' klar':'')+'" data-kat="'+esc(k.navn)+'" '+
-        'data-id="'+esc(g?g.id:'')+'"'+
-        (erAdmin&&!målErAdmin?' style="cursor:pointer"':'')+'>'+
+      h.push('<div class="hak'+(g?' klar':'')+'" data-kat="'+esc(k.navn)+'" '+
+        'data-kid="'+esc(g?g.id:'')+'" style="cursor:pointer">'+
         '<span class="boks">✓</span><span class="txt">'+
           '<span>'+esc(k.navn)+'</span>'+
-          '<span class="beskrivelse">'+
-            (målErAdmin?'Adgang som administrator'
-             :g?esc(g.kompetence):'Ikke godkendt')+'</span>'+
+          '<span class="beskrivelse">'+(g?esc(g.kompetence):'Ikke godkendt')+'</span>'+
+        '</span></div>');
+    }
+  }
+
+  /* ---- 2. hvilke opgaver ---- */
+  h.push('<h2 class="afsnit">Hvilke opgaver</h2>');
+  if(!ops){
+    h.push('<div class="vejl" style="border-color:#4a2521;background:#2d1917;color:#f0a49c;'+
+      'font-size:13px">Opgaverne kunne ikke hentes. Serveren kører formentlig en ældre '+
+      'version af koden — lav en ny version under Administrer implementeringer.</div>');
+  }else if(ops.erFirmaAdmin){
+    h.push('<div class="vejl" style="border-color:#39432b;background:#1e2410;color:#d8e39a;'+
+      'font-size:13px">'+esc(målBruger.navn)+' er firmaadministrator og har automatisk '+
+      'alle de opgaver, firmaet har fået lov til.</div>');
+  }else if(!ops.firmaets.length){
+    h.push('<div class="vejl" style="font-size:13px">Firmaet har ikke fået tilladelse til '+
+      'nogen opgaver endnu. '+(bruger.rolle==='kunde'
+        ?'Inspektøren giver tilladelserne.'
+        :'Giv dem under firmaets side → Tilladelser.')+'</div>');
+  }else{
+    const tildelt={};
+    ops.tildelte.forEach(t=>{ tildelt[t.scope]=t; });
+    h.push('<div class="vejl" style="font-size:13px">Kun det, firmaet har fået lov til, '+
+      'kan vælges her.</div>');
+    for(const f of ops.firmaets){
+      const t=tildelt[f.kode];
+      h.push('<div class="hak'+(t?' klar':'')+'" data-s="'+esc(f.kode)+'" '+
+        'data-sid="'+esc(t?t.id:'')+'" style="cursor:pointer">'+
+        '<span class="boks">✓</span><span class="txt">'+
+          '<span>'+esc(f.tekst)+'</span>'+
+          '<span class="beskrivelse">'+(t?esc(t.kompetence):'Ikke tildelt')+'</span>'+
+          (t&&t.gyldigTil?'<span class="beskrivelse" style="color:var(--amber)">Gyldig til '+
+            dkDato(t.gyldigTil)+'</span>':'')+
         '</span></div>');
     }
   }
   app.innerHTML=h.join('');
 
-  document.querySelectorAll('[data-u]').forEach(b=>{
-    b.onclick=()=>visGodkendelser(b.dataset.u);
+  document.querySelectorAll('[data-u]').forEach(b=>{ b.onclick=()=>visAdgang(b.dataset.u); });
+
+  const måRette = erAdmin || (bruger.rolle==='kunde' && bruger.firmaadmin==='Ja'
+                              && mål!==bruger.id) || bruger.rolle==='inspektør';
+
+  document.querySelectorAll('[data-kat]').forEach(el=>{
+    if(!måRette){ el.style.cursor='default'; return; }
+    el.onclick=async()=>{
+      const k=el.dataset.kat, har=el.classList.contains('klar');
+      try{
+        if(har){
+          const ja=await bekraeft('Fjern "'+k+'"?',
+            målBruger.navn+' mister adgang til alt udstyr i kategorien.','Fjern',true);
+          if(!ja) return;
+          await kald('api_revokeCategory',[el.dataset.kid,'Fjernet manuelt']);
+        }else{
+          const komp=await spoergTekst('Godkend til "'+k+'"','Godkend');
+          if(komp===null) return;
+          if(!komp.trim()){ toast('Skriv kompetencegrundlaget.',true); return; }
+          await kald('api_grantCategory',[mål,k,komp,'']);
+        }
+        visAdgang(mål);
+      }catch(e){ toast(e.message,true); }
+    };
   });
 
-  if(!erAdmin||målErAdmin) return;
-  document.querySelectorAll('.hak[data-kat]').forEach(el=>{
+  document.querySelectorAll('[data-s]').forEach(el=>{
+    if(!måRette||!ops||ops.erFirmaAdmin){ el.style.cursor='default'; return; }
     el.onclick=async()=>{
-      const kat=el.dataset.kat, harNu=el.classList.contains('klar');
-      try{
-        if(harNu){
-          const ja=await bekraeft('Tilbagekald "'+kat+'"?',
-            målBruger.navn+' mister adgang til alt udstyr i kategorien med det samme.',
-            'Tilbagekald',true);
-          if(!ja) return;
-          await kald('api_revokeCategory',[el.dataset.id,'Tilbagekaldt manuelt']);
-        }else{
-          const komp=await spoergTekst('Godkend '+målBruger.navn+' til "'+kat+'"','Godkend');
-          if(komp===null) return;
-          if(!komp.trim()){ toast('Skriv kompetencegrundlaget. Det skal kunne dokumenteres.',true); return; }
-          await kald('api_grantCategory',[mål,kat,komp,'']);
-        }
-        visGodkendelser(mål);
-      }catch(e){ toast(e.message,true); }
+      const kode=el.dataset.s, har=el.classList.contains('klar');
+      if(har){
+        const ja=await bekraeft('Fjern opgaven?',
+          målBruger.navn+' kan ikke længere udføre den.','Fjern',true);
+        if(!ja) return;
+        try{ await kald('api_revokeUserScope',[el.dataset.sid,'Fjernet manuelt']);
+             visAdgang(mål); }catch(e){ toast(e.message,true); }
+        return;
+      }
+      opgaveArk(mål,kode,(ops.firmaets.find(x=>x.kode===kode)||{}).tekst||kode,
+                målBruger.navn);
     };
   });
 }
@@ -5949,6 +5993,10 @@ async function visKunder(){
         (c.adresse?'<span>'+esc(c.adresse)+'</span>':'')+'</div>'+
       '<div class="termin ok">'+c.antalBrugere+' brugere · '+c.antalUdstyr+' stykker udstyr'+
         (c.aktiv==='Nej'?' · deaktiveret':'')+'</div>'+
+      '<div class="merker">'+
+        (c.antalTilladelser
+          ? '<span class="mrk forb">'+c.antalTilladelser+' tilladelser</span>'
+          : '<span class="mrk">ingen tilladelser</span>')+'</div>'+
       (c.kontaktperson?'<div class="meta" style="margin-top:4px">'+esc(c.kontaktperson)+
         (c.email?' · '+esc(c.email):'')+'</div>':'')+
     '</button>');
@@ -5976,10 +6024,7 @@ function firmaArk(c,erEjer){
     felt('c_kontakt','Kontaktperson','text','',c?c.kontaktperson:'')+
     felt('c_mail','E-mail','email','',c?c.email:'')+
     felt('c_tlf','Telefon','text','',c?c.telefon:'')+
-    (erEjer?'<input type="hidden" id="c_rolle" value="ejer">'
-      :vaelg('c_rolle','Firmaets rolle',[['kunde;ejer','Både kunde og ejer'],
-        ['ejer','Kun ejer af udstyret'],['kunde','Kun rekvirent']],
-        c?c.rolle:'kunde;ejer'))+
+    '<input type="hidden" id="c_rolle" value="'+(erEjer?'ejer':'kunde;ejer')+'">'+
     '<button class="knap primaer" id="mja">'+
       (c?'Gem':(erEjer?'Opret ejeren':'Opret firmaet'))+'</button>'+
     '<button class="knap" id="mnej">Fortryd</button></div>';
@@ -6022,7 +6067,7 @@ async function visKunde(companyId){
     (c.kontaktperson?'<dl class="par"><dt>Kontakt</dt><dd>'+esc(c.kontaktperson)+'</dd></dl>':'')+
     (c.email?'<dl class="par"><dt>E-mail</dt><dd>'+esc(c.email)+'</dd></dl>':'')+
     (c.telefon?'<dl class="par"><dt>Telefon</dt><dd>'+esc(c.telefon)+'</dd></dl>':'')+
-    '<dl class="par"><dt>Rolle</dt><dd>'+esc(c.rolle)+'</dd></dl></div>');
+    '</div>');
   h.push('<button class="knap" id="k_ret" style="min-height:44px;font-size:13.5px;'+
     'font-weight:500">Ret firmaoplysninger</button>');
 
@@ -6051,8 +6096,7 @@ async function visKunde(companyId){
           ? b.antalKategorier+' kategorier godkendt'
           : 'Ingen kategorier godkendt — kan ikke se noget udstyr endnu')+'</div>'+
       '<div class="fanetop" style="margin:11px 0 0">'+
-        '<button data-god="'+esc(b.id)+'">Kategorier</button>'+
-        '<button data-uop="'+esc(b.id)+'">Opgaver</button>'+
+        '<button data-god="'+esc(b.id)+'">Adgang</button>'+
         '<button data-bret="'+esc(b.id)+'">Ret</button></div>'+
     '</div>');
   }
@@ -6060,18 +6104,15 @@ async function visKunde(companyId){
   h.push('<h2 class="afsnit">Hvad kunden må selv</h2>');
   h.push('<button class="knap" onclick="gå({navn:\'tilladelser\',id:\''+esc(companyId)+'\'})">'+
     'Tilladelser</button>');
-  h.push('<div class="vejl" style="font-size:13px">Wirekontrol, slibning af prøvesteder '+
-    'og eftersyn af løftetilbehør kræver en tilladelse med navngivet person og '+
-    'kompetencegrundlag.</div>');
+  h.push('<div class="vejl" style="font-size:13px">Her siger du kun, hvad firmaet må. '+
+    'Hvem af deres folk der udfører opgaven, vælger deres firmaadministrator under '+
+    'den enkelte brugers <b>Adgang</b>.</div>');
   app.innerHTML=h.join('');
 
   $('#k_ret').onclick=()=>firmaArk(c);
   $('#b_ny').onclick=()=>brugerArk(companyId,null);
   document.querySelectorAll('[data-god]').forEach(x=>{
     x.onclick=()=>gå({navn:'godkend',id:x.dataset.god});
-  });
-  document.querySelectorAll('[data-uop]').forEach(x=>{
-    x.onclick=()=>gå({navn:'opgaver2',id:x.dataset.uop});
   });
   document.querySelectorAll('[data-bret]').forEach(x=>{
     x.onclick=()=>brugerArk(companyId,brugere.find(b=>b.id===x.dataset.bret));
@@ -6194,66 +6235,6 @@ async function visTilladelser(companyId){
   });
 }
 
-/* ---- hvem hos kunden udfører hvad ---- */
-
-async function visOpgaveAdgang(userId){
-  const d=await hent('api_userScopes',[userId]);
-  sætTitel('Opgaver',d.bruger.navn);
-
-  const tildelt={};
-  d.tildelte.forEach(t=>{ tildelt[t.scope]=t; });
-
-  const h=[];
-  if(d.erFirmaAdmin){
-    h.push('<div class="vejl" style="border-color:#39432b;background:#1e2410;'+
-      'color:#d8e39a">'+esc(d.bruger.navn)+' er firmaadministrator og har automatisk '+
-      'alt, firmaet har fået lov til.</div>');
-  }
-  if(!d.firmaets.length){
-    h.push('<div class="tom"><p>Firmaet har ikke fået tilladelse til nogen opgaver endnu.</p>'+
-      '<p style="font-size:13.5px">Inspektøren giver tilladelserne. Derefter kan du '+
-      'fordele dem blandt dine folk.</p></div>');
-    app.innerHTML=h.join('');
-    return;
-  }
-
-  h.push('<div class="vejl">Vælg hvilke opgaver '+esc(d.bruger.navn)+' må udføre. '+
-    'Du kan kun vælge blandt det, firmaet har fået lov til.</div>');
-
-  for(const f of d.firmaets){
-    const t=tildelt[f.kode];
-    h.push('<div class="hak'+(t||d.erFirmaAdmin?' klar':'')+'" data-s="'+esc(f.kode)+'" '+
-      'data-id="'+esc(t?t.id:'')+'"'+(d.erFirmaAdmin?'':' style="cursor:pointer"')+'>'+
-      '<span class="boks">✓</span><span class="txt">'+
-        '<span>'+esc(f.tekst)+'</span>'+
-        (t?'<span class="beskrivelse">'+esc(t.kompetence)+'</span>'+
-           (t.gyldigTil?'<span class="beskrivelse" style="color:var(--amber)">Gyldig til '+
-             dkDato(t.gyldigTil)+'</span>':'')
-          :'<span class="beskrivelse">'+(d.erFirmaAdmin?'Som firmaadministrator':'Ikke tildelt')+
-           '</span>')+
-      '</span></div>');
-  }
-  app.innerHTML=h.join('');
-
-  if(d.erFirmaAdmin) return;
-  document.querySelectorAll('[data-s]').forEach(el=>{
-    el.onclick=async()=>{
-      const kode=el.dataset.s, har=el.classList.contains('klar');
-      if(har){
-        const ja=await bekraeft('Fjern opgaven?',
-          esc(d.bruger.navn)+' kan ikke længere udføre den.','Fjern',true);
-        if(!ja) return;
-        try{ await kald('api_revokeUserScope',[el.dataset.id,'Fjernet manuelt']);
-             toast('Fjernet'); visOpgaveAdgang(userId); }
-        catch(e){ toast(e.message,true); }
-        return;
-      }
-      opgaveArk(userId,kode,
-        (d.firmaets.find(x=>x.kode===kode)||{}).tekst||kode, d.bruger.navn);
-    };
-  });
-}
-
 function opgaveArk(userId,kode,tekst,navn){
   const m=document.getElementById('modal');
   m.innerHTML='<div class="ark" style="max-height:86vh;overflow-y:auto">'+
@@ -6280,7 +6261,7 @@ function opgaveArk(userId,kode,tekst,navn){
     try{
       await kald('api_grantUserScope',[userId,kode,komp,til||'']);
       m.className=''; m.innerHTML='';
-      toast('Tildelt'); visOpgaveAdgang(userId);
+      toast('Tildelt'); visAdgang(userId);
     }catch(e){ vis(e.message); }
   };
 }
@@ -6353,8 +6334,7 @@ async function visKolleger(){
         (b.antalKategorier?'var(--lime)':'var(--amber)')+'">'+
         (b.antalKategorier?b.antalKategorier+' kategorier':'Ingen kategorier — ser intet')+'</div>'+
       (erMig?'':'<div class="fanetop" style="margin:11px 0 0">'+
-        '<button data-ko="'+esc(b.id)+'">Opgaver</button>'+
-        '<button data-kg="'+esc(b.id)+'">Kategorier</button>'+
+        '<button data-kg="'+esc(b.id)+'">Adgang</button>'+
         '<button data-kr="'+esc(b.id)+'">Ret</button></div>')+
     '</div>');
   }
@@ -6363,9 +6343,6 @@ async function visKolleger(){
   $('#kol_ny').onclick=()=>brugerArk(bruger.companyId,null);
   document.querySelectorAll('[data-kg]').forEach(x=>{
     x.onclick=()=>gå({navn:'godkend',id:x.dataset.kg});
-  });
-  document.querySelectorAll('[data-ko]').forEach(x=>{
-    x.onclick=()=>gå({navn:'opgaver2',id:x.dataset.ko});
   });
   document.querySelectorAll('[data-kr]').forEach(x=>{
     x.onclick=()=>brugerArk(bruger.companyId,brugere.find(b=>b.id===x.dataset.kr));
