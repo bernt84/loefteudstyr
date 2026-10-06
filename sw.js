@@ -8,7 +8,7 @@
  * tømmer den — både ved Background Sync og ved almindelig 'online'.
  */
 
-const VERSION = 'loefteudstyr-v1.1.0';
+const VERSION = 'loefteudstyr-v1.2.0';
 const SHELL = VERSION + '-shell';
 const DATA = VERSION + '-data';
 
@@ -71,8 +71,11 @@ self.addEventListener('fetch', (e) => {
                   url.pathname.endsWith('/index.html');
 
   if (erAppen) {
+    // cache: 'no-cache' = spørg altid GitHub Pages om der er en ny udgave.
+    // Ellers genbruger browseren sin egen kopi i op til 10 minutter, og
+    // appen viser den gamle version, selv om serveren er opdateret.
     e.respondWith(
-      fetch(e.request)
+      fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' })
         .then((res) => {
           if (res && res.ok) {
             const kopi = res.clone();
