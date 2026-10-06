@@ -2669,8 +2669,8 @@ const ER_OPSAT = !CLIENT_ID.startsWith('DIT-') && !ENDPOINT.includes('DIT-');
 
 /* Appens egen version, og hvilken serverkode den er skrevet til.
    Stemmer de ikke, mangler der en ny version i Apps Script. */
-const APP_VERSION = 'app-2026-10-06-v4.5';
-const FORVENTET_SERVER = 'kode-2026-10-06-v4.5';
+const APP_VERSION = 'app-2026-10-06-v4.6';
+const FORVENTET_SERVER = 'kode-2026-10-06-v4.6';
 
 /* ================================================================== *
  * 2. Lokal database — kø og indstillinger
@@ -6382,6 +6382,9 @@ async function visKunde(companyId){
 
 function brugerArk(companyId,b){
   const erAdmin=bruger.rolle==='admin';
+  // Inspektør ansat i et firma: kolleger bliver inspektører, brugere hos
+  // firmaets kunder bliver kunder. Det afgør serveren ud fra firmaet.
+  const erFI=bruger.rolle==='inspektør' && !!bruger.companyId;
   const m=document.getElementById('modal');
   m.innerHTML='<div class="ark" style="max-height:86vh;overflow-y:auto">'+
     '<h3>'+(b?'Ret '+esc(b.navn):'Ny bruger')+'</h3>'+
@@ -6395,10 +6398,14 @@ function brugerArk(companyId,b){
     felt('b_tlf','Telefon','text','',b?b.telefon:'')+
     (erAdmin
       ? vaelg('b_rolle','Rolle',[['kunde','Kunde — ser kun eget udstyr'],
-          ['inspektør','Inspektør — udfører eftersyn'],
+          ['inspektør','Inspektør — udfører eftersyn (hører han til et firma: kun firmaets egne kunder)'],
           ['admin','Administrator — kan alt']], b?b.rolle:'kunde')
-      : '<input type="hidden" id="b_rolle" value="kunde">')+
-    (bruger.rolle!=='kunde'
+      : '<input type="hidden" id="b_rolle" value="kunde">'+
+        (erFI&&!b?'<div class="vejl" style="font-size:12.5px">'+
+          (companyId===bruger.companyId
+            ? 'Oprettes som <b>inspektør</b> i dit firma. Han ser kun jeres egne kunders udstyr.'
+            : 'Oprettes som <b>kunde</b>. Han ser kun sit eget firmas udstyr.')+'</div>':''))+
+    (bruger.rolle!=='kunde' && !erFI
       ? vaelg('b_firmaadmin','Må styre sine kolleger',
           [['Nej','Nej'],['Ja','Ja — kan oprette og give adgang i eget firma']],
           b?b.firmaadmin||'Nej':'Nej')
