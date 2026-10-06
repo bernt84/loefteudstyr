@@ -2669,8 +2669,8 @@ const ER_OPSAT = !CLIENT_ID.startsWith('DIT-') && !ENDPOINT.includes('DIT-');
 
 /* Appens egen version, og hvilken serverkode den er skrevet til.
    Stemmer de ikke, mangler der en ny version i Apps Script. */
-const APP_VERSION = 'app-2026-08-31-v4.4';
-const FORVENTET_SERVER = 'kode-2026-08-31-v4.4';
+const APP_VERSION = 'app-2026-10-06-v4.5';
+const FORVENTET_SERVER = 'kode-2026-10-06-v4.5';
 
 /* ================================================================== *
  * 2. Lokal database — kø og indstillinger
@@ -2739,7 +2739,9 @@ async function kald(action,args=[]){
   if(!svar.ok) throw new Error('Serveren svarede ikke ('+svar.status+').');
   const d=await svar.json();
   if(!d.ok){
-    if(/logget ind|udløbet|token/i.test(d.error||'')) logUd(true);
+    // Kun rigtige login-fejl må logge ud. Før ramte fx "Koden er udløbet"
+    // og alt med ordet "token" også — og så røg sessionen.
+    if(/ikke logget ind|log ind igen/i.test(d.error||'')) logUd(true);
     throw new Error(d.error||'Ukendt fejl.');
   }
   return d.data;
@@ -3021,18 +3023,55 @@ async function tegnGoogleKnap(){
   }
 }
 
-/** Login uden Google-konto: engangskode på e-mail. */
+/** Login uden Google-konto: e-mail + egen adgangskode. */
 function tegnKodeLogin(email){
   const b=$('#kodeboks');
   b.innerHTML=
-    '<div class="vejl" style="font-size:13px">Har du ikke en Google-konto — og vil du '+
-    'ikke oprette en — så få en kode på din e-mail i stedet. Det virker med enhver '+
-    'adresse, også firmamail.</div>'+
+    '<div class="vejl" style="font-size:13px">Uden Google-konto: log ind med din e-mail '+
+    'og din egen adgangskode.</div>'+
     felt('l_mail','Din e-mail','email','navn@firma.dk',email||'')+
+    felt('l_pw','Adgangskode','password','','')+
     '<div id="l_fejl"></div>'+
-    '<button class="knap primaer" id="l_send">Send mig en kode</button>';
+    '<button class="knap primaer" id="l_ind">Log ind</button>'+
+    '<button class="knap" id="l_foerste" style="min-height:44px;font-size:13.5px;'+
+    'font-weight:500">Første gang eller glemt kode? Få en kode på e-mail</button>';
+
+  const mail=$('#l_mail'), pw=$('#l_pw');
+  mail.setAttribute('autocomplete','username');
+  pw.setAttribute('autocomplete','current-password');
+  if(email) pw.focus();
 
   const vis=t=>{ $('#l_fejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
+  const prøv=async()=>{
+    const m=mail.value.trim(), k=pw.value;
+    if(!m){ vis('Skriv din e-mailadresse.'); return; }
+    if(!k){ vis('Skriv din adgangskode.'); return; }
+    const knap=$('#l_ind'); knap.disabled=true; knap.textContent='Logger ind …';
+    try{
+      const r=await kald('api_loginPassword',[m,k]);
+      await efterKodeLogin(r);
+    }catch(e){ knap.disabled=false; knap.textContent='Log ind'; vis(e.message); }
+  };
+  $('#l_ind').onclick=prøv;
+  pw.onkeydown=e=>{ if(e.key==='Enter') prøv(); };
+  $('#l_foerste').onclick=()=>tegnMailKode(mail.value.trim());
+}
+
+/** Første gang (eller glemt kode): engangskode på e-mail. */
+function tegnMailKode(email){
+  const b=$('#kodeboks');
+  b.innerHTML=
+    '<div class="vejl" style="font-size:13px">Vi sender en engangskode til din e-mail. '+
+    'Når du er logget ind, vælger du din egen adgangskode — så skal du ikke have '+
+    'kode på mail igen.</div>'+
+    felt('l_mail','Din e-mail','email','navn@firma.dk',email||'')+
+    '<div id="l_fejl"></div>'+
+    '<button class="knap primaer" id="l_send">Send mig en kode</button>'+
+    '<button class="knap" id="l_tilbage" style="min-height:44px;font-size:13.5px;'+
+    'font-weight:500">Tilbage til log ind med adgangskode</button>';
+
+  const vis=t=>{ $('#l_fejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
+  $('#l_tilbage').onclick=()=>tegnKodeLogin($('#l_mail').value.trim());
   $('#l_send').onclick=async()=>{
     const m=$('#l_mail').value.trim();
     if(!m){ vis('Skriv din e-mailadresse.'); return; }
@@ -3058,7 +3097,7 @@ function tegnKodeInput(email,besked){
     '<div id="l_fejl"></div>'+
     '<button class="knap primaer" id="l_ok">Log ind</button>'+
     '<button class="knap" id="l_igen" style="min-height:44px;font-size:13.5px;'+
-    'font-weight:500">Brug en anden adresse</button>';
+    'font-weight:500">Tilbage</button>';
 
   const vis=t=>{ $('#l_fejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
   const felt2=$('#l_kode'); felt2.focus();
@@ -3069,15 +3108,7 @@ function tegnKodeInput(email,besked){
     const knap=$('#l_ok'); knap.disabled=true; knap.textContent='Logger ind …';
     try{
       const r=await kald('api_verifyCode',[email,k]);
-      sessionToken=r.sessionToken; idToken=null;
-      await dbSæt(CFG,'sessionToken',sessionToken);
-      await dbSlet(CFG,'idToken');
-      await dbSæt(CFG,'endpoint',ENDPOINT);
-      const d=await kald('api_me');
-      bruger=d.bruger;
-      await dbSæt(CFG,'bruger',bruger);
-      bedOmSynk();
-      historik.length=0; gå({navn:'fane',id:'kraner'},false);
+      await efterKodeLogin(r);
     }catch(e){
       knap.disabled=false; knap.textContent='Log ind';
       vis(e.message); felt2.select();
@@ -3086,6 +3117,61 @@ function tegnKodeInput(email,besked){
   $('#l_ok').onclick=prøv;
   felt2.onkeydown=e=>{ if(e.key==='Enter') prøv(); };
   $('#l_igen').onclick=()=>tegnKodeLogin(email);
+}
+
+/** Fælles efter login med adgangskode eller e-mailkode. */
+async function efterKodeLogin(r){
+  sessionToken=r.sessionToken; idToken=null;
+  await dbSæt(CFG,'sessionToken',sessionToken);
+  await dbSlet(CFG,'idToken');
+  await dbSæt(CFG,'endpoint',ENDPOINT);
+  const d=await kald('api_me');
+  bruger=d.bruger;
+  await dbSæt(CFG,'bruger',bruger);
+  bedOmSynk();
+  historik.length=0;
+  await gå({navn:'fane',id:'kraner'},false);
+  // Første login: vælg egen adgangskode, så der ikke skal mail til hver gang
+  if(!r.harKode) kodeArk(true);
+}
+
+/**
+ * Vælg/skift adgangskode. foerste=true: første login — kan ikke springes
+ * over med et klik udenfor, men kan udskydes.
+ */
+function kodeArk(foerste){
+  const m=document.getElementById('modal');
+  m.innerHTML='<div class="ark">'+
+    '<h3>'+(foerste?'Vælg din adgangskode':'Skift adgangskode')+'</h3>'+
+    '<div class="vejl" style="font-size:13px">'+
+      (foerste
+        ? 'Næste gang logger du ind med din e-mail og denne adgangskode — uden kode på mail.'
+        : 'Mindst 6 tegn. Du forbliver logget ind på denne enhed.')+'</div>'+
+    '<div id="pfejl"></div>'+
+    felt('p_ny','Ny adgangskode','password','Mindst 6 tegn','')+
+    felt('p_igen','Gentag adgangskode','password','','')+
+    '<button class="knap primaer" id="mja">Gem adgangskode</button>'+
+    '<button class="knap" id="mnej">'+(foerste?'Senere':'Fortryd')+'</button></div>';
+  m.className='vis';
+  m.querySelector('#p_ny').setAttribute('autocomplete','new-password');
+  m.querySelector('#p_igen').setAttribute('autocomplete','new-password');
+  m.querySelector('#p_ny').focus();
+  const vis=t=>{ m.querySelector('#pfejl').innerHTML=t?'<div class="arkfejl">'+esc(t)+'</div>':''; };
+  const luk=()=>{ m.className=''; m.innerHTML=''; };
+  m.querySelector('#mnej').onclick=luk;
+  if(!foerste) m.onclick=e=>{ if(e.target===m) luk(); };
+  m.querySelector('#mja').onclick=async()=>{
+    const a=m.querySelector('#p_ny').value, b2=m.querySelector('#p_igen').value;
+    if(a.length<6){ vis('Adgangskoden skal være mindst 6 tegn.'); return; }
+    if(a!==b2){ vis('De to adgangskoder er ikke ens.'); return; }
+    const k=m.querySelector('#mja'); k.disabled=true; k.textContent='Gemmer …';
+    try{
+      await kald('api_setPassword',[a]);
+      bruger.harKode=true; bruger.startkode=false;
+      await dbSæt(CFG,'bruger',bruger);
+      luk(); toast('Adgangskoden er gemt');
+    }catch(e){ k.disabled=false; k.textContent='Gem adgangskode'; vis(e.message); }
+  };
 }
 
 async function påLogin(res){
@@ -4862,8 +4948,13 @@ async function visMere(){
     '</div>');
   h.push('<button class="knap primaer" data-install id="installer" '+
     'style="margin-top:14px;display:none">Læg appen på hjemmeskærmen</button>');
+  if(!I_APPS_SCRIPT){
+    h.push('<button class="knap" id="skiftkode" style="margin-top:8px">'+
+      (bruger.harKode?'Skift adgangskode':'Vælg adgangskode')+'</button>');
+  }
   h.push('<button class="knap fare" id="udlog" style="margin-top:8px">Log ud</button>');
   app.innerHTML=h.join('');
+  if($('#skiftkode')) $('#skiftkode').onclick=()=>kodeArk(false);
   // Hvilken kodeversion svarer serveren med? Afgør om implementeringen
   // er opdateret, uden at man skal gætte.
   kald('api_me').then(d=>{
@@ -6317,6 +6408,11 @@ function brugerArk(companyId,b){
         vaelg('b_saer','Særligt sagkyndig §73',[['Nej','Nej'],['Ja','Ja']],b.saerligtSagkyndig)+
         vaelg('b_aktiv','Adgang',[['Ja','Aktiv'],['Nej','Lukket']],b.aktiv||'Ja')
       : '')+
+    felt('b_pw',b?(b.harKode?'Ny startkode (valgfri — overskriver brugerens kode)':
+        'Startkode (valgfri)'):'Startkode (valgfri)','text','Mindst 6 tegn','')+
+    '<div class="vejl" style="font-size:12.5px;margin-top:-4px">Med en startkode kan '+
+      'brugeren logge ind med e-mail + kode med det samme og selv skifte den bagefter. '+
+      'Uden startkode får de en engangskode på mail første gang og vælger selv en.</div>'+
     (b?'':'<div class="vejl" style="font-size:12.5px">Kompetencefelterne sættes til '+
       'Nej ved oprettelse. De skal tildeles bevidst — det er dem, der afgør, hvem der '+
       'må afslutte et 10-års eftersyn.</div>')+
@@ -6335,11 +6431,15 @@ function brugerArk(companyId,b){
                      p.saerligtSagkyndig=v('b_saer'); p.aktiv=v('b_aktiv');
                      p.firmaadmin=v('b_firmaadmin'); }
         if(!p.navn){ vis('Skriv personens navn.'); return; }
+        const pw=v('b_pw');
+        if(pw && pw.length<6){ vis('Startkoden skal være mindst 6 tegn.'); return; }
         await kald('api_updateUser',[b.id,p]);
+        if(pw) await kald('api_setUserPassword',[b.id,pw]);
       }else{
         const d={email:v('b_mail'),navn:v('b_navn'),titel:v('b_titel'),
                  telefon:v('b_tlf'),rolle:v('b_rolle'),companyId,
-                 firmaadmin:v('b_firmaadmin')||'Nej'};
+                 firmaadmin:v('b_firmaadmin')||'Nej',startkode:v('b_pw')};
+        if(d.startkode && d.startkode.length<6){ vis('Startkoden skal være mindst 6 tegn.'); return; }
         if(!d.email){ vis('Skriv e-mailadressen. Det er den, koden sendes til.'); return; }
         if(!d.navn){ vis('Skriv personens navn.'); return; }
         await kald('api_createUser',[d]);
@@ -6648,7 +6748,7 @@ async function installerApp(){
     // Bekræft at tokenet stadig gælder. Fejler det, sender logUd
     // brugeren til login uden at miste køen.
     kald('api_me').then(d=>{ bruger=d.bruger; dbSæt(CFG,'bruger',bruger); })
-                  .catch(()=>{ if(navigator.onLine) logUd(true); });
+                  .catch(()=>{ /* kald() logger selv ud ved en rigtig login-fejl */ });
     bedOmSynk();
   }else{
     tegn();
